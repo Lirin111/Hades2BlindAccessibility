@@ -5,6 +5,35 @@
 -- this file will be reloaded if it changes during gameplay,
 -- 	so only assign to values or define things here.
 
+-- Fallback function in case CollapseTableOrderedByKeys doesn't exist
+function CollapseTableOrderedByKeys(tableArg)
+	if tableArg == nil then
+		return {}
+	end
+	if CollapseTableOrdered then
+		return CollapseTableOrdered(tableArg)
+	end
+	-- Fallback if CollapseTableOrdered doesn't exist either
+	local collapsed = {}
+	for k, v in pairs(tableArg) do
+		table.insert(collapsed, v)
+	end
+	return collapsed
+end
+
+-- NumUseableObjects function replacement
+function NumUseableObjects(objects)
+	local count = 0
+	if objects ~= nil then
+		for k, v in pairs(objects) do
+			if IsUseable({ Id = v.ObjectId }) then
+				count = count + 1
+			end
+		end
+	end
+	return count
+end
+
 function wrap_InventoryScreenDisplayCategory(screen, categoryIndex, args)
 	args = args or {}
 	local components = screen.Components
@@ -129,7 +158,7 @@ function OpenAssesDoorShowerMenu(doors)
 	SetConfigOption({ Name = "FreeFormSelectRepeatInterval", Value = 0.1 })
 	SetConfigOption({ Name = "FreeFormSelecSearchFromId", Value = 0 })
 
-	PlaySound({ Name = "/SFX/Menu Sounds/ContractorMenuOpen" })
+	PlaySound({ Name = "/SFX/Menu Sounds/BrokerMenuOpen" })
 	local components = screen.Components
 
 	components.ShopBackgroundDim = CreateScreenComponent({ Name = "rectangle01", Group = "Asses_UI" })
@@ -152,7 +181,8 @@ function OpenAssesDoorShowerMenu(doors)
 end
 
 function GetMapName()
-	if CurrentRun.Hero.IsDead and CurrentHubRoom ~= nil then
+	-- Add nil checks for CurrentRun to prevent crashes when interacting with certain NPCs/areas
+	if CurrentRun ~= nil and CurrentRun.Hero ~= nil and CurrentRun.Hero.IsDead and CurrentHubRoom ~= nil then
 		return CurrentHubRoom.Name
 	elseif CurrentRun ~= nil and CurrentRun.CurrentRoom ~= nil then
 		return CurrentRun.CurrentRoom.Name
@@ -262,6 +292,32 @@ function CreateAssesDoorButtons(screen, doors)
 		ShadowOffset = { 0, 2 },
 		Justification = "Left",
 	})
+	curY = curY + yIncrement
+
+	local manaKey = "AssesResourceMenuInformationMana"
+	components[manaKey] =
+		CreateScreenComponent({
+			Name = "ButtonDefault",
+			Group = "Asses_UI",
+			Scale = 0.8,
+			X = 960,
+			Y = curY
+		})
+	AttachLua({ Id = components[manaKey].Id, Table = components[manaKey] })
+	CreateTextBox({
+		Id = components[manaKey].Id,
+		Text = "Mana: " .. (CurrentRun.Hero.Mana or 0) .. "/" .. (CurrentRun.Hero.MaxMana or 0),
+		FontSize = 24,
+		OffsetX = -100,
+		OffsetY = 0,
+		Color = Color.White,
+		Font = "P22UndergroundSCMedium",
+		Group = "Asses_UI",
+		ShadowBlur = 0,
+		ShadowColor = { 0, 0, 0, 1 },
+		ShadowOffset = { 0, 2 },
+		Justification = "Left",
+	})
 	curY = curY + yIncrement + 30
 	for k, door in pairs(doors) do
 		local showDoor = true
@@ -325,21 +381,40 @@ function CreateAssesDoorButtons(screen, doors)
 				local encounterData = args.RoomData.Encounter or {}
 				local previewIcon = rewardOverrides.RewardPreviewIcon or encounterData.RewardPreviewIcon or
 					args.RoomData.RewardPreviewIcon
-				if previewIcon ~= nil and string.find(previewIcon, "Elite") then
-					if previewIcon == "RoomElitePreview4" then
+
+				-- Check for boss/miniboss/elite indicators
+				if previewIcon ~= nil then
+					if previewIcon == "RoomRewardSubIcon_Boss" then
 						displayText = displayText .. " (Boss)"
-					elseif previewIcon == "RoomElitePreview2" then
+					elseif previewIcon == "RoomRewardSubIcon_Miniboss" then
 						displayText = displayText .. " (Mini-Boss)"
-					elseif previewIcon == "RoomElitePreview3" then
-						if not string.find(displayText, "(Infernal Gate)") then
-							displayText = displayText .. " (Infernal Gate)"
+					elseif string.find(previewIcon, "Elite") then
+						-- Legacy support for Elite preview icons
+						if previewIcon == "RoomElitePreview4" then
+							displayText = displayText .. " (Boss)"
+						elseif previewIcon == "RoomElitePreview2" then
+							displayText = displayText .. " (Mini-Boss)"
+						elseif previewIcon == "RoomElitePreview3" then
+							if not string.find(displayText, "(Infernal Gate)") then
+								displayText = displayText .. " (Infernal Gate)"
+							end
+						else
+							displayText = displayText .. " (Elite)"
 						end
-					else
-						displayText = displayText .. " (Elite)"
+					end
+				end
+
+				-- Check for Infernal Gate (Challenge encounter)
+				if door.Room.Encounter and door.Room.Encounter.EncounterType == "Challenge" then
+					if not string.find(displayText, "(Infernal Gate)") then
+						displayText = displayText .. " (Infernal Gate)"
 					end
 				end
 				if door.HealthCost and door.HealthCost ~= 0 then
 					displayText = displayText .. " -" .. door.HealthCost .. "{!Icons.Health}"
+				end
+				if door.EncounterCost ~= nil then
+					displayText = displayText .. " (Sealed)"
 				end
 			end
 			local buttonKey = "AssesResourceMenuButton" .. k
@@ -405,12 +480,25 @@ function rom.game.BlindAccessAssesDoorMenuSoundSet(screen, button)
 end
 
 function doDefaultSound(door)
-	local offsetX = 0
-	local offsetY = 0
+	local offsetX = door.DestinationOffsetX or 0
+	local offsetY = door.DestinationOffsetY or 0
+
+	-- If no specific offset is set, use better defaults
+	if offsetX == 0 and offsetY == 0 then
+		offsetY = -120 -- Stand in front of doors by default
+		offsetX = 0    -- Centered
+	end
+
+	-- Special cases for specific doors
 	if door.Name == "ChronosBossDoor" then
 		offsetX = 200
 		offsetY = -140
+	elseif door.Name and door.Name:find("Exit") then
+		offsetY = 50 -- Further back for exit doors
+	elseif door.Name and door.Name:find("Shop") then
+		offsetY = -100 -- Good distance for shop doors
 	end
+
 	Teleport({ Id = CurrentRun.Hero.ObjectId, DestinationId = door.ObjectId, OffsetX = offsetX, OffsetY = offsetY })
 end
 
@@ -464,7 +552,7 @@ local mapPointsOfInterest = {
 			for k, plot in pairs(GameState.GardenPlots) do
 				if plot.GrowTimeRemaining == 0 then
 					objectId = plot.ObjectId
-					if plot.StoredGrows > 0 then
+					if plot.StoredGrows and plot.StoredGrows > 0 then
 						name = GetDisplayName({ Text = "GardenPlots", IgnoreSpecialFormatting = true }) ..
 						" - Harvestable"
 						break
@@ -476,10 +564,12 @@ local mapPointsOfInterest = {
 			if name ~= "" then
 				table.insert(copy, { Name = name, ObjectId = objectId, DestinationOffsetX = 100 })
 			end
+			-- Add lore interactables (InspectPoints) for Crossroads
+			copy = AddInspectPoints(copy)
 			return copy
 		end,
 		Objects = {
-			{ Name = "QuestLog_Unlocked_Subtitle", ObjectId = 589991 },
+			{ Name = "QuestLog_Unlocked_Subtitle", ObjectId = 560662, DestinationOffsetY = -120 },
 			{ Name = "GhostAdminScreen_Title",     ObjectId = 567390, DestinationOffsetY = 137, RequireUseable = false },
 			{ Name = "Broker",                     ObjectId = 558096, DestinationOffsetX = 140, DestinationOffsetY = 35 },
 			{ Name = "Supply Drop",                ObjectId = 583652, DestinationOffsetX = 117, DestinationOffsetY = -64 }, --No direct translation in sjson
@@ -503,14 +593,20 @@ local mapPointsOfInterest = {
 				end
 			end
 
-			for index, toolName in ipairs(ToolOrderData) do
-				local kitId = MapState.ToolKitIds[index]
-				if IsUseable({ Id = kitId }) then
-					table.insert(copy,
-						{ Name = GetDisplayName({ Text = "Tool", IgnoreSpecialFormatting = true }) ..
-						" " .. GetDisplayName({ Text = toolName, IgnoreSpecialFormatting = true }), ObjectId = kitId })
+			-- Tools system was reworked in Hades II 1.0 - ToolOrderData and ToolKitIds no longer exist
+			-- Tool interactions are now handled differently and don't need explicit teleportation
+			if ToolOrderData and MapState.ToolKitIds then
+				for index, toolName in ipairs(ToolOrderData) do
+					local kitId = MapState.ToolKitIds[index]
+					if IsUseable({ Id = kitId }) then
+						table.insert(copy,
+							{ Name = GetDisplayName({ Text = "Tool", IgnoreSpecialFormatting = true }) ..
+							" " .. GetDisplayName({ Text = toolName, IgnoreSpecialFormatting = true }), ObjectId = kitId })
+					end
 				end
 			end
+			-- Add lore interactables (InspectPoints) for pre-run area
+			copy = AddInspectPoints(copy)
 			return copy
 		end,
 		Objects = {
@@ -539,7 +635,8 @@ local mapPointsOfInterest = {
 			if not IsUseable({ Id = 370010 }) then
 				t = AddNPCs(t)
 			end
-
+			-- Add lore interactables for flashback area
+			t = AddInspectPoints(t)
 			return t
 		end
 	},
@@ -564,12 +661,27 @@ local mapPointsOfInterest = {
 					end
 				end
 			end
+			-- Add lore interactables for flashback hub
+			t = AddInspectPoints(t)
 			return t
 		end
+	},
+	-- Default room config for all biomes with NPCs
+	["*"] = {
+		AddNPCs = true,
+		Objects = {}
 	}
 }
 
 function ProcessTable(objects, blockIds)
+	-- Add all exit doors to blockIds to prevent them from appearing in rewards
+	blockIds = blockIds or {}
+	if MapState.OfferedExitDoors then
+		for doorId, door in pairs(MapState.OfferedExitDoors) do
+			blockIds[doorId] = true
+		end
+	end
+
 	local t = InitializeObjectList(objects, blockIds)
 
 	local currMap = GetMapName()
@@ -601,6 +713,7 @@ function ProcessTable(objects, blockIds)
 		t = AddWell(t)
 		t = AddSurfaceShop(t)
 		t = AddPool(t)
+		t = AddInspectPoints(t)
 	end
 
 	return t
@@ -684,6 +797,26 @@ function AddPool(objects)
 	return copy
 end
 
+function AddInspectPoints(objects)
+	-- Add lore interactables (InspectPoints) to the menu
+	if not MapState.InspectPoints then
+		return objects
+	end
+	local copy = ShallowCopyTable(objects)
+	for objectId, inspectPoint in pairs(MapState.InspectPoints) do
+		if IsUseable({ Id = objectId }) then
+			local loreObject = {
+				["ObjectId"] = objectId,
+				["Name"] = "Lore: " .. (GetDisplayName({ Text = inspectPoint.Name or "Unknown", IgnoreSpecialFormatting = true }) or "Inspect Point"),
+			}
+			if not ObjectAlreadyPresent(loreObject, copy) then
+				table.insert(copy, loreObject)
+			end
+		end
+	end
+	return copy
+end
+
 function AddNPCs(objects)
 	if CurrentRun and IsCombatEncounterActive(CurrentRun) then
 		return objects
@@ -757,7 +890,7 @@ function OpenRewardMenu(rewards)
 	OnScreenOpened(screen)
 	HideCombatUI(screen.Name)
 
-	PlaySound({ Name = "/SFX/Menu Sounds/ContractorMenuOpen" })
+	PlaySound({ Name = "/SFX/Menu Sounds/BrokerMenuOpen" })
 	local components = screen.Components
 
 	components.ShopBackgroundDim = CreateScreenComponent({ Name = "rectangle01", Group = "Menu_UI" })
@@ -863,6 +996,32 @@ function CreateRewardButtons(screen, rewards)
 			Justification = "Left",
 		})
 		curY = curY + yIncrement
+
+		local manaKey = "AssesResourceMenuInformationMana"
+		components[manaKey] =
+			CreateScreenComponent({
+				Name = "ButtonDefault",
+				Group = "Menu_UI_Rewards",
+				Scale = 0.8,
+				X = 960,
+				Y = curY
+			})
+		AttachLua({ Id = components[manaKey].Id, Table = components[manaKey] })
+		CreateTextBox({
+			Id = components[manaKey].Id,
+			Text = "Mana: " .. (CurrentRun.Hero.Mana or 0) .. "/" .. (CurrentRun.Hero.MaxMana or 0),
+			FontSize = 24,
+			OffsetX = -100,
+			OffsetY = 0,
+			Color = Color.White,
+			Font = "P22UndergroundSCMedium",
+			Group = "Menu_UI_Rewards",
+			ShadowBlur = 0,
+			ShadowColor = { 0, 0, 0, 1 },
+			ShadowOffset = { 0, 2 },
+			Justification = "Left",
+		})
+		curY = curY + yIncrement
 	else
 		startY = 110
 		curY = startY
@@ -950,15 +1109,34 @@ function rom.game.BlindAccessGoToReward(screen, button)
 	rom.game.BlindAccessCloseRewardMenu(screen, button)
 	local RewardID = nil
 	RewardID = button.reward.ObjectId
-	destinationOffsetX = button.reward.DestinationOffsetX or 0
-	destinationOffsetY = button.reward.DestinationOffsetY or 0
+	local destinationOffsetX = button.reward.DestinationOffsetX or 0
+	local destinationOffsetY = button.reward.DestinationOffsetY or 0
+
+	-- If no specific offset is set, calculate better positioning
+	if destinationOffsetX == 0 and destinationOffsetY == 0 then
+		-- Default positioning - stand slightly in front of object
+		destinationOffsetY = -80 -- Stand in front (closer to player's view)
+		destinationOffsetX = 0   -- Centered horizontally
+
+		-- Adjust for specific object types
+		if button.reward.Name then
+			local name = button.reward.Name
+			if name:find("Door") or name:find("Exit") then
+				destinationOffsetY = -120 -- Further back for doors
+			elseif name:find("Loot") or name:find("Reward") then
+				destinationOffsetY = -60  -- Closer for loot
+			elseif name:find("Store") or name:find("Shop") then
+				destinationOffsetY = -100 -- Good distance for shops
+			end
+		end
+	end
+
 	if RewardID ~= nil then
 		Teleport({
 			Id = CurrentRun.Hero.ObjectId,
 			DestinationId = RewardID,
 			OffsetX = destinationOffsetX,
-			OffsetY =
-				destinationOffsetY
+			OffsetY = destinationOffsetY
 		})
 	end
 end
@@ -993,7 +1171,7 @@ function OpenStoreMenu(items)
 	OnScreenOpened(screen)
 	HideCombatUI(screen.Name)
 
-	PlaySound({ Name = "/SFX/Menu Sounds/ContractorMenuOpen" })
+	PlaySound({ Name = "/SFX/Menu Sounds/BrokerMenuOpen" })
 	local components = screen.Components
 
 	components.ShopBackgroundDim = CreateScreenComponent({ Name = "rectangle01", Group = "Asses_UI_Store" })
@@ -1098,6 +1276,32 @@ function CreateItemButtons(screen, items)
 		Justification = "Left",
 	})
 	curY = curY + yIncrement
+
+	local manaKey = "AssesResourceMenuInformationMana"
+	components[manaKey] =
+		CreateScreenComponent({
+			Name = "ButtonDefault",
+			Group = "Asses_UI_Store",
+			Scale = 0.8,
+			X = 960,
+			Y = curY
+		})
+	AttachLua({ Id = components[manaKey].Id, Table = components[manaKey] })
+	CreateTextBox({
+		Id = components[manaKey].Id,
+		Text = "Mana: " .. (CurrentRun.Hero.Mana or 0) .. "/" .. (CurrentRun.Hero.MaxMana or 0),
+		FontSize = 24,
+		OffsetX = -100,
+		OffsetY = 0,
+		Color = Color.White,
+		Font = "P22UndergroundSCMedium",
+		Group = "Asses_UI_Store",
+		ShadowBlur = 0,
+		ShadowColor = { 0, 0, 0, 1 },
+		ShadowOffset = { 0, 2 },
+		Justification = "Left",
+	})
+	curY = curY + yIncrement
 	for k, item in pairs(items) do
 		if IsUseable({ Id = item.ObjectId }) and item.Name ~= "ForbiddenShopItem" then
 			local displayText = item.Name
@@ -1167,7 +1371,15 @@ function rom.game.BlindAccessMoveToItem(screen, button)
 	rom.game.BlindAccessCloseItemScreen(screen, button)
 	local ItemID = button.item.ObjectId
 	if ItemID ~= nil then
-		Teleport({ Id = CurrentRun.Hero.ObjectId, DestinationId = ItemID })
+		-- Default positioning for store items - stand in front
+		local offsetX = button.item.DestinationOffsetX or 0
+		local offsetY = button.item.DestinationOffsetY or -80 -- Stand in front by default
+		Teleport({
+			Id = CurrentRun.Hero.ObjectId,
+			DestinationId = ItemID,
+			OffsetX = offsetX,
+			OffsetY = offsetY
+		})
 	end
 end
 
@@ -1400,8 +1612,7 @@ function OnCodexPress()
 				end
 			end
 			if currentRoom.HarvestPointChoicesIds and #currentRoom.HarvestPointChoicesIds > 0 then
-				local HarvestPointIDs = GetIds({Name = "ConsumableItems"})
-				for i, id in pairs(HarvestPointIDs) do
+				for i, id in pairs(currentRoom.HarvestPointChoicesIds) do
 					if IsUseable({Id = id}) then
 						table.insert(rewardsTable, { IsResourceHarvest = true, Name = "Herb", ObjectId = id })
 					end
@@ -1459,7 +1670,7 @@ function OnAdvancedTooltipPress()
 		end
 	end
 	local rewardsTable = {}
-	if CurrentRun.Hero.IsDead and not IsScreenOpen("InventoryScreen") and not IsScreenOpen("BlindAccesibilityInventoryMenu") then
+	if CurrentRun ~= nil and CurrentRun.Hero ~= nil and CurrentRun.Hero.IsDead and not IsScreenOpen("InventoryScreen") and not IsScreenOpen("BlindAccesibilityInventoryMenu") then
 		rewardsTable = ProcessTable(ModUtil.Table.Merge(LootObjects, MapState.RoomRequiredObjects))
 		if TableLength(rewardsTable) > 0 then
 			if not IsEmpty(ActiveScreens.TraitTrayScreen) then
@@ -1685,6 +1896,11 @@ function wrap_GhostAdminDisplayCategory(screen, button)
 		local purchaseButtonKey = "PurchaseButton" .. currentIndex
 		local button = screen.Components[purchaseButtonKey]
 
+		-- Skip if button doesn't exist
+		if not button then
+			goto continue
+		end
+
 		local name = v.Name
 		local displayName = GetDisplayName({ Text = name, IgnoreSpecialFormatting = true })
 
@@ -1712,6 +1928,7 @@ function wrap_GhostAdminDisplayCategory(screen, button)
 			LuaKey = "TooltipData",
 			LuaValue = v,
 		})
+		::continue::
 	end
 
 	for k, v in pairs(boughtItems) do
@@ -1719,6 +1936,11 @@ function wrap_GhostAdminDisplayCategory(screen, button)
 
 		local purchaseButtonKey = "PurchaseButton" .. currentIndex
 		local button = screen.Components[purchaseButtonKey]
+
+		-- Skip if button doesn't exist
+		if not button then
+			goto continue2
+		end
 
 		local name = v.Name
 		local displayName = GetDisplayName({ Text = name, IgnoreSpecialFormatting = true })
@@ -1741,35 +1963,79 @@ function wrap_GhostAdminDisplayCategory(screen, button)
 			LuaKey = "TooltipData",
 			LuaValue = v,
 		})
+		::continue2::
 	end
 end
 
 function override_GhostAdminScreenRevealNewItemsPresentation(screen, button)
+	-- Immediate parameter validation before any operations
+	if not screen then
+		return
+	end
+
 	AddInputBlock({ Name = "GhostAdminScreenRevealNewItemspResentation" })
+
+	-- Add comprehensive safety checks for screen object and handle new data structures
+	if not screen.Components then
+		RemoveInputBlock({ Name = "GhostAdminScreenRevealNewItemspResentation" })
+		return
+	end
+
+	if not screen.AvailableItems then
+		RemoveInputBlock({ Name = "GhostAdminScreenRevealNewItemspResentation" })
+		return
+	end
+
+	-- Handle cases where ScrollOffset or ItemsPerPage might be nil or zero
+	local scrollOffset = screen.ScrollOffset or 1
+	local itemsPerPage = screen.ItemsPerPage or 0
+
+	if itemsPerPage <= 0 then
+		RemoveInputBlock({ Name = "GhostAdminScreenRevealNewItemspResentation" })
+		return
+	end
+
+	-- Ensure we don't access beyond available items
+	local maxItems = #screen.AvailableItems or 0
+	if maxItems <= 0 then
+		RemoveInputBlock({ Name = "GhostAdminScreenRevealNewItemspResentation" })
+		return
+	end
 
 	local components = screen.Components
 
+	-- Reveal new items with bounds checking
+	local endIndex = math.min(scrollOffset + itemsPerPage, maxItems)
+
 	-- Reveal new items
 	--for itemNum, item in ipairs( screen.AvailableItems ) do
-	for itemNum = screen.ScrollOffset, screen.ScrollOffset + screen.ItemsPerPage do
+	for itemNum = scrollOffset, endIndex do
 		local item = screen.AvailableItems[itemNum]
-		if item ~= nil and not GameState.WorldUpgradesRevealed[item.Name] then
+		if item ~= nil and item.Name and GameState and GameState.WorldUpgradesRevealed and not GameState.WorldUpgradesRevealed[item.Name] then
 			local purchaseButtonKey = "PurchaseButton" .. itemNum
-			SetAlpha({ Id = components[purchaseButtonKey].Id, Fraction = 0, Duration = 0 })
+			if components[purchaseButtonKey] ~= nil then
+				SetAlpha({ Id = components[purchaseButtonKey].Id, Fraction = 0, Duration = 0 })
+			end
 			local iconKey = "Icon" .. itemNum
-			SetAlpha({ Id = components[iconKey].Id, Fraction = 0, Duration = 0 })
+			if components[iconKey] ~= nil then
+				SetAlpha({ Id = components[iconKey].Id, Fraction = 0, Duration = 0 })
+			end
 			local newIconKey = "NewIcon" .. itemNum
-			SetAlpha({ Id = components[newIconKey].Id, Fraction = 0, Duration = 0 })
+			if components[newIconKey] ~= nil then
+				SetAlpha({ Id = components[newIconKey].Id, Fraction = 0, Duration = 0 })
+			end
 		end
 	end
 	local incantationsRevealed = false
-	for itemNum = screen.ScrollOffset, screen.ScrollOffset + screen.ItemsPerPage do
+	for itemNum = scrollOffset, endIndex do
 		local item = screen.AvailableItems[itemNum]
-		if item ~= nil and not GameState.WorldUpgradesRevealed[item.Name] then
+		if item ~= nil and item.Name and GameState and GameState.WorldUpgradesRevealed and not GameState.WorldUpgradesRevealed[item.Name] then
 			local purchaseButtonKey = "PurchaseButton" .. itemNum
-			ModifyTextBox({ Id = components[purchaseButtonKey].Id, FadeOpacity = 0.0, FadeTarget = 1.0, FadeDuration = 0.05 })
-			SetAlpha({ Id = components[purchaseButtonKey].Id, Fraction = 1, Duration = 0 })
-			SetAnimation({ Name = "CriticalItemShopButtonReveal", DestinationId = components[purchaseButtonKey].Id, OffsetX = 0, })
+			if components[purchaseButtonKey] ~= nil then
+				ModifyTextBox({ Id = components[purchaseButtonKey].Id, FadeOpacity = 0.0, FadeTarget = 1.0, FadeDuration = 0.05 })
+				SetAlpha({ Id = components[purchaseButtonKey].Id, Fraction = 1, Duration = 0 })
+				SetAnimation({ Name = "CriticalItemShopButtonReveal", DestinationId = components[purchaseButtonKey].Id, OffsetX = 0, })
+			end
 
 			thread(PlayVoiceLines, item.OfferedVoiceLines, true)
 
@@ -1781,13 +2047,17 @@ function override_GhostAdminScreenRevealNewItemsPresentation(screen, button)
 			if components[newIconKey] ~= nil then
 				SetAlpha({ Id = components[newIconKey].Id, Fraction = 1, Duration = 0.05 })
 			end
-			CurrentRun.WorldUpgradesRevealed[item.Name] = true
-			GameState.WorldUpgradesRevealed[item.Name] = true
+			if CurrentRun and CurrentRun.WorldUpgradesRevealed then
+				CurrentRun.WorldUpgradesRevealed[item.Name] = true
+			end
+			if GameState and GameState.WorldUpgradesRevealed then
+				GameState.WorldUpgradesRevealed[item.Name] = true
+			end
 			incantationsRevealed = true
 			-- wait( 0.9 )
 		end
 	end
-	if incantationsRevealed then
+	if incantationsRevealed and HeroVoiceLines and HeroVoiceLines.CauldronSpellDiscoveredVoiceLines then
 		thread(PlayVoiceLines, HeroVoiceLines.CauldronSpellDiscoveredVoiceLines, true)
 	end
 	wait(0.2) -- Need to wait for last reveal animation to fully finish
