@@ -1758,7 +1758,7 @@ function override_SpawnStoreItemInWorld(itemData, kitId)
 			spawnedItem.IconPath = spawnedItem.TextIconPath or spawnedItem.IconPath
 			table.insert(CurrentRun.CurrentRoom.Store.SpawnedStoreItems,
 				--MOD START
-				{ KitId = kitId, ObjectId = spawnedItem.ObjectId, ResourceCosts = spawnedItem.ResourceCosts, Name =
+				{ KitId = kitId, ObjectId = spawnedItem.ObjectId, OriginalResourceCosts = spawnedItem.BaseResourceCosts, ResourceCosts = spawnedItem.ResourceCosts, Name =
 				itemData.Name })
 			--MOD END
 		else
