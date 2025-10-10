@@ -538,6 +538,8 @@ function doDefaultSound(door)
 		offsetY = -140
 	elseif door.Name and door.Name:find("Exit") then
 		offsetY = 50 -- Further back for exit doors
+	elseif door.Name and door.Name:find("N_SubRoom") then
+		offsetY = 250 -- For sub rooms in Ephyra
 	elseif door.Name and door.Name:find("Shop") then
 		offsetY = -100 -- Good distance for shop doors
 	end
@@ -925,7 +927,7 @@ function AddWell(objects)
 	local copy = ShallowCopyTable(objects)
 	local well = {
 		["ObjectId"] = CurrentRun.CurrentRoom.WellShop.ObjectId,
-		["Name"] = "Well of Charon",
+		["Name"] = "WellShop_Title",
 	}
 	if not ObjectAlreadyPresent(well, copy) then
 		table.insert(copy, well)
@@ -941,7 +943,7 @@ function AddPool(objects)
 	local copy = ShallowCopyTable(objects)
 	local pool = {
 		["ObjectId"] = CurrentRun.CurrentRoom.SellTraitShop.ObjectId,
-		["Name"] = "Pool of Purging",
+		["Name"] = "SellTraitShop",
 	}
 	if not ObjectAlreadyPresent(pool, copy) then
 		table.insert(copy, pool)
