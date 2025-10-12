@@ -2320,23 +2320,29 @@ function wrap_MarketScreenDisplayCategory(screen, categoryIndex)
 				" * " .. item.LeftDisplayAmount
 
 				local currentAmount = GameState.Resources[buyResourceData.Name] or 0
-
-				local price = ""
-
-				if category.FlipSides then
-					price = GetDisplayName({ Text = "MarketScreen_SellingHeader" }) ..
-					": +" ..
-					costDisplay.MetaCurrency ..
-					" " .. GetDisplayName({ Text = "MetaCurrency", IgnoreSpecialFormatting = true })
-				else
-					price = GetDisplayName({ Text = "MarketScreen_BuyingHeader", IgnoreSpecialFormatting = true }) ..
-					": " ..
-					costDisplay.MetaCurrency ..
-					" " .. GetDisplayName({ Text = "MetaCurrency", IgnoreSpecialFormatting = true })
+				local bannerText = ""
+				if not item.Priority then
+					bannerText = GetDisplayName({ Text = "Market_LimitedTimeOffer" }) .. ". "
+				elseif item.HasUnmetRequirements then
+					bannerText = GetDisplayName({ Text = "MarketEarlySellWarning" }) .. ". "
 				end
 
+				local price = ""
+				if category.FlipSides then
+					price = GetDisplayName({ Text = "MarketScreen_SellingHeader" }) .. ": +"
+				else
+					price = GetDisplayName({ Text = "MarketScreen_BuyingHeader", IgnoreSpecialFormatting = true }) .. ": "
+				end
 
-				itemNameFormat.Text = displayName ..
+				local priceParts = {}
+				for resource, amount in pairs(costDisplay) do
+					local currencyName = GetDisplayName({ Text = resource, IgnoreSpecialFormatting = true })
+					table.insert(priceParts, amount .. " " .. currencyName)
+				end
+				price = price .. table.concat(priceParts, ", ") -- Combine all parts of the price
+
+				itemNameFormat.Text = bannerText .. 
+				displayName ..
 				" " ..
 				GetDisplayName({ Text = "Inventory", IgnoreSpecialFormatting = true }) ..
 				": " .. currentAmount .. ", " .. price
