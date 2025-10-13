@@ -107,10 +107,36 @@ function wrap_InventoryScreenDisplayCategory(screen, categoryIndex, args)
 				statusText = statusText .. ", "
 			end
 
+			-- Create the main text box with name, amount, and status
 			ModifyTextBox({
 				Id = button.Id,
 				Text = GetDisplayName({ Text = resourceName, IgnoreSpecialFormatting = true }) ..
-				": " .. (GameState.Resources[resourceName] or 0) .. ", " .. statusText
+				": " .. (GameState.Resources[resourceName] or 0) .. ", " .. statusText,
+				UseDescription = false
+			})
+
+			-- Create a second text box with the details description
+			local detailsKey = resourceName .. "_Details"
+			CreateTextBox({
+				Id = button.Id,
+				Text = detailsKey,
+				UseDescription = true,
+				OffsetY = 0,
+				FontSize = 1,
+				Color = {0, 0, 0, 0},  -- Invisible
+				SkipDraw = true
+			})
+
+			-- Create a third text box with the flavor text
+			local flavorKey = resourceName .. "_Flavor"
+			CreateTextBox({
+				Id = button.Id,
+				Text = flavorKey,
+				UseDescription = true,
+				OffsetY = 0,
+				FontSize = 1,
+				Color = {0, 0, 0, 0},  -- Invisible
+				SkipDraw = true
 			})
 		end
 	end
@@ -120,7 +146,20 @@ function OnInventoryPress()
 	if not IsScreenOpen("TraitTrayScreen") then
 		return
 	end
-	if TableLength(MapState.OfferedExitDoors) == 0 and GetMapName() ~= "Hub_Main" then
+
+	-- Check if we're in Asphodel (has CapturePointSwitch)
+	local hasAsphodelExit = false
+	local capturePointIds = GetIdsByType({ Name = "CapturePointSwitch" })
+	if capturePointIds and #capturePointIds > 0 then
+		for _, id in ipairs(capturePointIds) do
+			if IsUseable({ Id = id }) then
+				hasAsphodelExit = true
+				break
+			end
+		end
+	end
+
+	if TableLength(MapState.OfferedExitDoors) == 0 and GetMapName() ~= "Hub_Main" and not hasAsphodelExit then
 		return
 	elseif TableLength(MapState.OfferedExitDoors) == 1 and string.find(GetMapName(), "D_Hub") then
 		finalBossDoor = CollapseTable(MapState.OfferedExitDoors)[1]
@@ -135,6 +174,10 @@ function OnInventoryPress()
 		elseif MapState.ShipWheels then
 			TraitTrayScreenClose(ActiveScreens.TraitTrayScreen)
 			OpenAssesDoorShowerMenu(CollapseTable(MapState.ShipWheels))
+		elseif hasAsphodelExit then
+			-- Open menu for Asphodel with empty doors list, will be populated by AddAsphodelExit
+			TraitTrayScreenClose(ActiveScreens.TraitTrayScreen)
+			OpenAssesDoorShowerMenu({})
 		end
 	end
 end
@@ -495,6 +538,8 @@ function doDefaultSound(door)
 		offsetY = -140
 	elseif door.Name and door.Name:find("Exit") then
 		offsetY = 50 -- Further back for exit doors
+	elseif door.Name and door.Name:find("N_SubRoom") then
+		offsetY = 250 -- For sub rooms in Ephyra
 	elseif door.Name and door.Name:find("Shop") then
 		offsetY = -100 -- Good distance for shop doors
 	end
@@ -708,7 +753,24 @@ function ProcessTable(objects, blockIds)
 
 	table.sort(t, function(a, b) return a.Name < b.Name end)
 
-	if CurrentRun and CurrentRun.CurrentRoom and CurrentRun.CurrentRoom.ExitsUnlocked then
+	-- Check if we're in Asphodel (has CapturePointSwitch)
+	local inAsphodel = false
+	local capturePointIds = GetIdsByType({ Name = "CapturePointSwitch" })
+	if capturePointIds and #capturePointIds > 0 then
+		for _, id in ipairs(capturePointIds) do
+			if IsUseable({ Id = id }) then
+				inAsphodel = true
+				break
+			end
+		end
+	end
+
+	-- Always check for Asphodel exit (doesn't require ExitsUnlocked)
+	t = AddAsphodelExit(t)
+	t = AddPoisonCure(t)
+	t = AddGiftRack(t)
+
+	if CurrentRun and CurrentRun.CurrentRoom and (CurrentRun.CurrentRoom.ExitsUnlocked or inAsphodel) then
 		t = AddTrove(t)
 		t = AddWell(t)
 		t = AddSurfaceShop(t)
@@ -730,20 +792,112 @@ function InitializeObjectList(objects, blockIds)
 	return copy
 end
 
+local function GetChallengeDisplayName(rawName)
+	if not rawName then
+		return "ChallengeSwitch"
+	end
+
+	-- Strip reward suffix (anything after first underscore)
+	local baseName = string.match(rawName, "^(%a+ChallengeSwitch)") or "ChallengeSwitch"
+
+	-- Map internal base names to the game’s localization IDs
+	local locMap = {
+		TimeChallengeSwitch = "ChallengeSwitch",       -- Infernal Trove
+		EliteChallengeSwitch = "EliteChallengeSwitch", -- Moon Monument
+		PerfectClearChallengeSwitch = "PerfectClearChallengeSwitch", -- Unseen Sigil
+	}
+
+	local locId = locMap[baseName] or "ChallengeSwitch"
+
+	-- Debug: log what we found
+	print(string.format("Debug: rawName=%s, baseName=%s, locId=%s", rawName, baseName, locId))
+
+	-- Return localized text
+	return GetDisplayName({ Text = locId, IgnoreSpecialFormatting = true })
+end
+
 function AddTrove(objects)
-	if not (CurrentRun.CurrentRoom.ChallengeSwitch and IsUseable({ Id = CurrentRun.CurrentRoom.ChallengeSwitch.ObjectId })) then
+	local switchData = CurrentRun.CurrentRoom.ChallengeSwitch
+	if not (switchData and IsUseable({ Id = switchData.ObjectId })) then
 		return objects
 	end
-	local NV = CurrentRun.CurrentRoom.ChallengeSwitch.ObjectId
+
 	local copy = ShallowCopyTable(objects)
+	local displayName = GetChallengeDisplayName(switchData.Name)
+	local rewardType = GetDisplayName({ Text = switchData.RewardType, IgnoreSpecialFormatting = true })
+
 	local switch = {
-		["ObjectId"] = CurrentRun.CurrentRoom.ChallengeSwitch.ObjectId,
-		["Name"] = "Infernal Trove (" ..
-			(GetDisplayName({ Text = CurrentRun.CurrentRoom.ChallengeSwitch.RewardType or CurrentRun.CurrentRoom.ChallengeSwitch.RewardType, IgnoreSpecialFormatting = true })) ..
-			")",
+		ObjectId = switchData.ObjectId,
+		Name = string.format("%s (%s)", displayName, rewardType),
 	}
+
 	if not ObjectAlreadyPresent(switch, copy) then
 		table.insert(copy, switch)
+	end
+	return copy
+end
+
+function AddAsphodelExit(objects)
+	-- Look for CapturePointSwitch (sand vortex orb in Asphodel)
+	local capturePointIds = GetIdsByType({ Name = "CapturePointSwitch" })
+	if not capturePointIds or #capturePointIds == 0 then
+		return objects
+	end
+
+	local copy = ShallowCopyTable(objects)
+	for _, id in ipairs(capturePointIds) do
+		if IsUseable({ Id = id }) then
+			local exitPoint = {
+				["ObjectId"] = id,
+				["Name"] = GetDisplayName({ Text = "Asphodel", IgnoreSpecialFormatting = true }) .. " Exit (Sand Vortex)",
+			}
+			if not ObjectAlreadyPresent(exitPoint, copy) then
+				table.insert(copy, exitPoint)
+			end
+		end
+	end
+	return copy
+end
+
+function AddPoisonCure(objects)
+	local ids = GetIdsByType({ Name = "PoisonCure" })
+	if not ids or #ids == 0 then
+		return objects
+	end
+
+	local NV = CurrentRun.CurrentRoom.PoisonCure
+	local copy = ShallowCopyTable(objects)
+	for _, id in ipairs(ids) do
+		if IsUseable({ Id = id }) then
+			local entry = {
+				ObjectId = id,
+				Name = "Curing Pool"
+			}
+			if not ObjectAlreadyPresent(entry, copy) then
+				table.insert(copy, entry)
+			end
+		end
+	end
+	return copy
+end
+
+function AddGiftRack(objects)
+	local ids = GetIdsByType({ Name = "GiftRack" })
+	if not ids or #ids == 0 then
+		return objects
+	end
+
+	local copy = ShallowCopyTable(objects)
+	for _, id in ipairs(ids) do
+		if IsUseable({ Id = id }) then
+			local entry = {
+				ObjectId = id,
+				Name = "Keepsakes"
+			}
+			if not ObjectAlreadyPresent(entry, copy) then
+				table.insert(copy, entry)
+			end
+		end
 	end
 	return copy
 end
@@ -773,7 +927,7 @@ function AddWell(objects)
 	local copy = ShallowCopyTable(objects)
 	local well = {
 		["ObjectId"] = CurrentRun.CurrentRoom.WellShop.ObjectId,
-		["Name"] = "Well of Charon",
+		["Name"] = "WellShop_Title",
 	}
 	if not ObjectAlreadyPresent(well, copy) then
 		table.insert(copy, well)
@@ -789,7 +943,7 @@ function AddPool(objects)
 	local copy = ShallowCopyTable(objects)
 	local pool = {
 		["ObjectId"] = CurrentRun.CurrentRoom.SellTraitShop.ObjectId,
-		["Name"] = "Pool of Purging",
+		["Name"] = "SellTraitShop",
 	}
 	if not ObjectAlreadyPresent(pool, copy) then
 		table.insert(copy, pool)
@@ -840,8 +994,6 @@ function AddNPCs(objects)
 					npc["DestinationOffsetY"] = 150
 				end
 			elseif npcs[i].Name == "NPC_Cerberus_01" and GetMapName() == "Hub_Main" and GetDistance({ Id = npc["ObjectId"], DestinationId = 422028 }) > 500 then                                                                                                     --Cerberus not present in house
-				skip = true
-			elseif npcs[i].Name == "NPC_Cerberus_Field_01" and TableLength(MapState.OfferedExitDoors) == 1 and CollapseTable(MapState.OfferedExitDoors)[1].Room.Name:find("D_Boss", 1, true) == 1 and GetDistance({ Id = npc["ObjectId"], DestinationId = 551569 }) == 0 then --Cerberus in Styx after having been given satyr sack
 				skip = true
 			end
 			if not ObjectAlreadyPresent(npc, copy) and not skip then
@@ -1552,28 +1704,33 @@ function OnCodexPress()
 			rewardsTable = ProcessTable(MapState.WeaponKits)
 		else
 			local blockedIds = {}
-			if string.find(curMap, "Shop") or string.find(curMap, "PreBoss") or string.find(curMap, "D_Hub") then
-				if CurrentRun.CurrentRoom.Store ~= nil then
-					if NumUseableObjects(CurrentRun.CurrentRoom.Store.SpawnedStoreItems or MapState.SurfaceShopItems) ~= 0 then
-						if CurrentRun.CurrentRoom.Store.SpawnedStoreItems then
-							for k, v in ipairs(CurrentRun.CurrentRoom.Store.SpawnedStoreItems) do
-								local name = v.Name
-								if name == "StoreRewardRandomStack" then
-									name = "RandomPom"
-								end
+			-- Check both map name and room name patterns for shops
+			local isShopRoom = (curMap and (string.find(curMap, "Shop") or string.find(curMap, "PreBoss") or string.find(curMap, "D_Hub")))
+			local hasStore = CurrentRun and CurrentRun.CurrentRoom and CurrentRun.CurrentRoom.Store
+
+			if (isShopRoom or hasStore) then
+				if hasStore then
+					-- Check if store items exist (don't use NumUseableObjects since shop items aren't useable until purchased)
+					if CurrentRun.CurrentRoom.Store.SpawnedStoreItems and TableLength(CurrentRun.CurrentRoom.Store.SpawnedStoreItems) > 0 then
+						for k, v in pairs(CurrentRun.CurrentRoom.Store.SpawnedStoreItems) do
+							local name = v.Name
+							if name == "StoreRewardRandomStack" then
+								name = "RandomPom"
+							end
+							if v.Name ~= "ForbiddenShopItem" then
 								table.insert(rewardsTable,
 									{ IsShopItem = true, Name = name, ObjectId = v.ObjectId, ResourceCosts = v
 									.ResourceCosts })
 								blockedIds[v.ObjectId] = true
 							end
 						end
-						if MapState.SurfaceShopItems then
-							for k, v in ipairs(MapState.SurfaceShopItems) do
-								table.insert(rewardsTable,
-									{ IsShopItem = true, Name = v.Name, ObjectId = v.ObjectId, ResourceCosts = v
-									.ResourceCosts })
-								blockedIds[v.ObjectId] = true
-							end
+					end
+					if MapState.SurfaceShopItems and TableLength(MapState.SurfaceShopItems) > 0 then
+						for k, v in pairs(MapState.SurfaceShopItems) do
+							table.insert(rewardsTable,
+								{ IsShopItem = true, Name = v.Name, ObjectId = v.ObjectId, ResourceCosts = v
+								.ResourceCosts })
+							blockedIds[v.ObjectId] = true
 						end
 					end
 				end
@@ -1642,7 +1799,8 @@ function OnCodexPress()
 
 		local tempTable = {}
 		for k, v in pairs(rewardsTable) do
-			if v.ObjectId == nil or IsUseable({ Id = v.ObjectId }) then
+			-- Shop items don't need IsUseable check since they're blocked until purchased
+			if v.IsShopItem or v.ObjectId == nil or IsUseable({ Id = v.ObjectId }) then
 				tempTable[k] = v
 			end
 		end
@@ -1681,10 +1839,61 @@ function OnAdvancedTooltipPress()
 	end
 end
 
+-- Convert icon paths to readable text
+function ConvertIconsToText(text)
+	if not text then return text end
+
+	-- Common icon mappings
+	local iconMappings = {
+		["@GUI\\Icons\\Life"] = "Health",
+		["@GUI\\Icons\\Currency"] = "Gold",
+		["@gui/icons/life"] = "Health",
+		["@gui/icons/currency"] = "Gold",
+		["@gui/icons/mana"] = "Magick",
+		["@gui/icons/armor"] = "Armor",
+		["@gui/icons/attack"] = "Attack",
+		["@gui/icons/speed"] = "Speed",
+	}
+
+	-- First try exact matches (case-insensitive)
+	for pattern, replacement in pairs(iconMappings) do
+		text = text:gsub(pattern:gsub("\\", "\\\\"), replacement)
+		text = text:gsub(pattern:lower():gsub("\\", "\\\\"), replacement)
+		text = text:gsub(pattern:upper():gsub("\\", "\\\\"), replacement)
+	end
+
+	-- Handle any remaining icon patterns by extracting the icon name
+	-- Pattern: @gui/icons/name or @GUI\Icons\name (with optional .number at the end)
+	text = text:gsub("@[Gg][Uu][Ii][/\\][Ii]cons[/\\]([%w_]+)%.?%d*", function(iconName)
+		-- Convert icon name from camelCase/snake_case to readable format
+		-- First, handle known specific names
+		local knownNames = {
+			life = "Health",
+			currency = "Gold",
+			mana = "Magick",
+			armor = "Armor",
+			attack = "Attack",
+			speed = "Speed",
+		}
+
+		local lowerName = iconName:lower()
+		if knownNames[lowerName] then
+			return knownNames[lowerName]
+		end
+
+		-- Otherwise, capitalize first letter and return
+		return iconName:sub(1,1):upper() .. iconName:sub(2)
+	end)
+
+	return text
+end
+
 function wrap_GetDisplayName(baseFunc, args)
 	v = baseFunc(args)
 	if args.IgnoreSpecialFormatting then
-		return v:gsub("{[^}]+}", "")
+		v = v:gsub("{[^}]+}", "")
+		v = ConvertIconsToText(v)
+		return v
 	end
 	return v
 end
@@ -2111,23 +2320,29 @@ function wrap_MarketScreenDisplayCategory(screen, categoryIndex)
 				" * " .. item.LeftDisplayAmount
 
 				local currentAmount = GameState.Resources[buyResourceData.Name] or 0
-
-				local price = ""
-
-				if category.FlipSides then
-					price = GetDisplayName({ Text = "MarketScreen_SellingHeader" }) ..
-					": +" ..
-					costDisplay.MetaCurrency ..
-					" " .. GetDisplayName({ Text = "MetaCurrency", IgnoreSpecialFormatting = true })
-				else
-					price = GetDisplayName({ Text = "MarketScreen_BuyingHeader", IgnoreSpecialFormatting = true }) ..
-					": " ..
-					costDisplay.MetaCurrency ..
-					" " .. GetDisplayName({ Text = "MetaCurrency", IgnoreSpecialFormatting = true })
+				local bannerText = ""
+				if not item.Priority then
+					bannerText = GetDisplayName({ Text = "Market_LimitedTimeOffer" }) .. ". "
+				elseif item.HasUnmetRequirements then
+					bannerText = GetDisplayName({ Text = "MarketEarlySellWarning" }) .. ". "
 				end
 
+				local price = ""
+				if category.FlipSides then
+					price = GetDisplayName({ Text = "MarketScreen_SellingHeader" }) .. ": +"
+				else
+					price = GetDisplayName({ Text = "MarketScreen_BuyingHeader", IgnoreSpecialFormatting = true }) .. ": "
+				end
 
-				itemNameFormat.Text = displayName ..
+				local priceParts = {}
+				for resource, amount in pairs(costDisplay) do
+					local currencyName = GetDisplayName({ Text = resource, IgnoreSpecialFormatting = true })
+					table.insert(priceParts, amount .. " " .. currencyName)
+				end
+				price = price .. table.concat(priceParts, ", ") -- Combine all parts of the price
+
+				itemNameFormat.Text = bannerText .. 
+				displayName ..
 				" " ..
 				GetDisplayName({ Text = "Inventory", IgnoreSpecialFormatting = true }) ..
 				": " .. currentAmount .. ", " .. price
@@ -2287,6 +2502,7 @@ function override_CreateSurfaceShopButtons(screen)
 			descriptionText.Text = GetSurfaceShopText( upgradeData )
 			descriptionText.LuaKey = "TooltipData"
 			descriptionText.LuaValue = upgradeData
+			descriptionText.UseDescription = false
 			CreateTextBoxWithFormat(descriptionText)
 
 			components[purchaseButtonKey].BlindAccessTitleText = title
@@ -2311,7 +2527,7 @@ function override_CreateSurfaceShopButtons(screen)
 				VerticalJustification = "BOTTOM",
 				LuaKey = "TempTextData",
 				LuaValue = { Delay = upgradeData.RoomDelay }
-			},LocalizationData.SellTraitScripts.ShopButton))
+			}))
 
 			local purchaseButtonTitleKey = "PurchaseButtonTitle"..itemIndex
 			components[purchaseButtonTitleKey] = CreateScreenComponent({ Name = "BlankObstacle", Group = "Combat_Menu", X = itemLocationX, Y = itemLocationY })
@@ -2323,7 +2539,7 @@ function override_CreateSurfaceShopButtons(screen)
 			local purchaseButtonCostKey = "PurchaseButtonCost"..itemIndex
 			components[purchaseButtonCostKey] = CreateScreenComponent({ Name = "BlankObstacle", Group = "Combat_Menu", Scale = 1, X = itemLocationX, Y = itemLocationY })
 			
-			CreateTextBox(MergeTables({ Id = components[purchaseButtonCostKey].Id, Text = costString, OffsetX = 410, OffsetY = -50, FontSize = 28, Color = costColor, Font = "P22UndergroundSCMedium", Justification = "Right" },LocalizationData.SellTraitScripts.ShopButton))
+			CreateTextBox(MergeTables({ Id = components[purchaseButtonCostKey].Id, Text = costString, OffsetX = 410, OffsetY = -50, FontSize = 28, Color = costColor, Font = "P22UndergroundSCMedium", Justification = "Right" }))
 
 
 			if CurrentRun.CurrentRoom.Store.Buttons == nil then
@@ -2393,6 +2609,7 @@ function wrap_HandleSurfaceShopAction(screen, button)
 	descriptionText.Text = GetSurfaceShopText( upgradeData )
 	descriptionText.LuaKey = "TooltipData"
 	descriptionText.LuaValue = upgradeData
+	descriptionText.UseDescription = false
 	CreateTextBoxWithFormat(descriptionText)
 
 end
@@ -2490,17 +2707,17 @@ function wrap_CreateTalentTreeIcons(screen, args)
 			end
 			local stateText = ""
 			if talent.Invested or talent.QueuedInvested then
-				stateText = GetDisplayName({ Text = "On", IgnoreSpecialFormatting = true }) 
+				stateText = GetDisplayName({ Text = "On" })
 			elseif not talent.Invested then
 				if hasPreRequisites then
-					stateText = GetDisplayName({ Text = "Off", IgnoreSpecialFormatting = true }) .. ", " .. (CurrentRun.NumTalentPoints + 1) .. " " .. GetDisplayName({Text = "AdditionalTalentPointDisplay"})
+					stateText = GetDisplayName({ Text = "Off" }) .. ", " .. (CurrentRun.NumTalentPoints + 1) .. " " .. GetDisplayName({Text = "AdditionalTalentPointDisplay"})
 				else
-					stateText = GetDisplayName({Text = "AwardMenuLocked", IgnoreSpecialFormatting = true}) .. ", " .. (CurrentRun.NumTalentPoints + 1) .. " " .. GetDisplayName({Text = "AdditionalTalentPointDisplay"})
+					stateText = GetDisplayName({Text = "AwardMenuLocked"}) .. ", " .. (CurrentRun.NumTalentPoints + 1) .. " " .. GetDisplayName({Text = "AdditionalTalentPointDisplay"})
 				end
 			end
-			print(stateText)
 
-			local titleText = stateText .. ", " .. GetDisplayName({Text = talent.Name})
+			local talentNameText = GetDisplayName({Text = talent.Name}) or talent.Name
+		local titleText = talentNameText .. ", " .. stateText
 			CreateTextBox({ 
 				Id = talentObject.Id,
 				Text = titleText,
@@ -2529,8 +2746,11 @@ function wrap_CreateTalentTreeIcons(screen, args)
 					-- print((button.TalentColumn + 1) .."_"..v)
 					-- print(components.TalentIdsDictionary[(button.TalentColumn + 1) .."_"..v])
 					local linkedButton = components["TalentObject" .. (i + 1) .."_"..v]
-		
-					linkText = linkText .. GetDisplayName({Text = linkedButton.Data.Name}) .. ", "
+
+					-- Safety check: Ensure linkedButton exists before accessing it
+					if linkedButton and linkedButton.Data and linkedButton.Data.Name then
+						linkText = linkText .. GetDisplayName({Text = linkedButton.Data.Name}) .. ", "
+					end
 				end
 				linkText = linkText:sub(1, -3)
 				CreateTextBox({ 
@@ -2549,6 +2769,11 @@ end
 function wrap_UpdateTalentButtons(screen, skipUsableCheck)
 	local components = screen.Components
 	local firstUsable = skipUsableCheck
+
+	-- Safety check: Ensure SlottedSpell exists before accessing Talents
+	if not CurrentRun.Hero.SlottedSpell or not CurrentRun.Hero.SlottedSpell.Talents then
+		return
+	end
 
 	for i, column in ipairs( CurrentRun.Hero.SlottedSpell.Talents ) do
 		for s, talent in pairs( column ) do
@@ -2570,16 +2795,17 @@ function wrap_UpdateTalentButtons(screen, skipUsableCheck)
 			end
 			local stateText = ""
 			if talent.Invested or talent.QueuedInvested then
-				stateText = GetDisplayName({ Text = "On", IgnoreSpecialFormatting = true })
+				stateText = GetDisplayName({ Text = "On" })
 			elseif not talent.Invested then
 				if hasPreRequisites then
-					stateText = GetDisplayName({ Text = "Off", IgnoreSpecialFormatting = true }) .. ", " ..(CurrentRun.NumTalentPoints + 1) .. " " .. GetDisplayName({Text = "AdditionalTalentPointDisplay"})
+					stateText = GetDisplayName({ Text = "Off" }) .. ", " ..(CurrentRun.NumTalentPoints + 1) .. " " .. GetDisplayName({Text = "AdditionalTalentPointDisplay"})
 				else
-					stateText = GetDisplayName({Text = "AwardMenuLocked", IgnoreSpecialFormatting = true}) .. ", " .. (CurrentRun.NumTalentPoints + 1) .. " " .. GetDisplayName({Text = "AdditionalTalentPointDisplay"})  
+					stateText = GetDisplayName({Text = "AwardMenuLocked"}) .. ", " .. (CurrentRun.NumTalentPoints + 1) .. " " .. GetDisplayName({Text = "AdditionalTalentPointDisplay"})
 				end
 			end
 
-			local titleText = stateText .. ", " .. GetDisplayName({Text = talent.Name})
+			local talentNameText = GetDisplayName({Text = talent.Name}) or talent.Name
+		local titleText = talentNameText .. ", " .. stateText
 			CreateTextBox({ 
 				Id = talentObject.Id,
 				Text = titleText,
@@ -2608,8 +2834,11 @@ function wrap_UpdateTalentButtons(screen, skipUsableCheck)
 					-- print((button.TalentColumn + 1) .."_"..v)
 					-- print(components.TalentIdsDictionary[(button.TalentColumn + 1) .."_"..v])
 					local linkedButton = components["TalentObject" .. (i + 1) .."_"..v]
-		
-					linkText = linkText .. GetDisplayName({Text = linkedButton.Data.Name}) .. ", "
+
+					-- Safety check: Ensure linkedButton exists before accessing it
+					if linkedButton and linkedButton.Data and linkedButton.Data.Name then
+						linkText = linkText .. GetDisplayName({Text = linkedButton.Data.Name}) .. ", "
+					end
 				end
 				linkText = linkText:sub(1, -3)
 				CreateTextBox({ 
@@ -2622,6 +2851,113 @@ function wrap_UpdateTalentButtons(screen, skipUsableCheck)
 				})
 			end
 		end
+	end
+end
+
+function wrap_MouseOverTalentButton(button)
+	-- Safety check for button and data
+	if not button or not button.Data or not button.Data.Name then
+		return
+	end
+
+	local talent = button.Data
+	local screen = button.Screen
+
+	-- Build the spoken text similar to how boons are described
+	local spokenText = ""
+
+	-- Safety: Get talent trait data for full information
+	local newTraitData = nil
+	if CurrentRun and CurrentRun.Hero then
+		pcall(function()
+			newTraitData = GetProcessedTraitData({
+				Unit = CurrentRun.Hero,
+				TraitName = talent.Name,
+				Rarity = talent.Rarity,
+				ForBoonInfo = true
+			})
+		end)
+	end
+
+	-- Add talent name
+	local talentName = GetDisplayName({Text = talent.Name}) or talent.Name
+	spokenText = talentName
+
+	-- Add state (invested, queued, or available)
+	if talent.Invested then
+		spokenText = spokenText .. ", " .. (GetDisplayName({ Text = "On" }) or "On")
+	elseif talent.QueuedInvested then
+		spokenText = spokenText .. ", " .. (GetDisplayName({ Text = "On" }) or "On") .. " " .. (GetDisplayName({ Text = "Queued" }) or "Queued")
+	else
+		-- Check if it has prerequisites met
+		local hasPreRequisites = true
+		if talent.LinkFrom and screen and screen.Components and button.TalentColumn then
+			hasPreRequisites = false
+			for _, preReqIndex in pairs(talent.LinkFrom) do
+				local preReqButton = screen.Components["TalentObject"..(button.TalentColumn-1).."_"..preReqIndex]
+				if preReqButton and preReqButton.Data and (preReqButton.Data.Invested or preReqButton.Data.QueuedInvested) then
+					hasPreRequisites = true
+					break
+				end
+			end
+		end
+
+		if hasPreRequisites then
+			spokenText = spokenText .. ", " .. (GetDisplayName({ Text = "Off" }) or "Off")
+			-- Add cost info
+			if CurrentRun and CurrentRun.NumTalentPoints ~= nil then
+				local costText = GetDisplayName({ Text = "Cost" }) or "Cost"
+				local pointsText = GetDisplayName({Text = "AdditionalTalentPointDisplay"}) or "points"
+				spokenText = spokenText .. ", " .. costText .. " " .. (CurrentRun.NumTalentPoints + 1) .. " " .. pointsText
+			end
+		else
+			spokenText = spokenText .. ", " .. (GetDisplayName({Text = "AwardMenuLocked"}) or "Locked")
+		end
+	end
+
+	-- Add description as transparent text
+	pcall(function()
+		CreateTextBox({
+			Id = button.Id,
+			Text = spokenText,
+			Color = Color.Transparent,
+		})
+	end)
+
+	-- Add the actual talent description
+	if talent.Name then
+		pcall(function()
+			local descriptionText = GetDisplayName({Text = talent.Name, UseDescription = true})
+			if descriptionText and descriptionText ~= "" and descriptionText ~= talentName then
+				CreateTextBox({
+					Id = button.Id,
+					Text = descriptionText,
+					Color = Color.Transparent,
+				})
+			end
+		end)
+	end
+
+	-- Add linked talents information
+	if talent.LinkTo and button.TalentColumn and screen and screen.Components then
+		pcall(function()
+			local linkText = GetDisplayName({ Text = "LeadsTo" }) or "Leads to"
+			local linkedNames = {}
+			for k,v in pairs(talent.LinkTo) do
+				local linkedButton = screen.Components["TalentObject" .. (button.TalentColumn + 1) .."_"..v]
+				if linkedButton and linkedButton.Data and linkedButton.Data.Name then
+					table.insert(linkedNames, GetDisplayName({Text = linkedButton.Data.Name}) or linkedButton.Data.Name)
+				end
+			end
+			if #linkedNames > 0 then
+				linkText = linkText .. " " .. table.concat(linkedNames, ", ")
+				CreateTextBox({
+					Id = button.Id,
+					Text = linkText,
+					Color = Color.Transparent,
+				})
+			end
+		end)
 	end
 end
 
@@ -2766,4 +3102,21 @@ function sjson_Chronos(data)
 			v.Damage = 50
 		end
 	end
+end
+
+function wrap_Damage(baseFunc, victim, triggerArgs)
+	-- Check if no trap damage is enabled and victim is the hero
+	if config.NoTrapDamage and victim.ObjectId == game.CurrentRun.Hero.ObjectId then
+		-- Check if the attacker is a trap (inherits from BaseTrap)
+		local attacker = triggerArgs.AttackerTable
+		if attacker and attacker.Name then
+			-- Check if this is a trap by looking at the UnitSetData.Traps table
+			if game.UnitSetData and game.UnitSetData.Traps and game.UnitSetData.Traps[attacker.Name] then
+				-- This is a trap, prevent damage entirely by returning early
+				return
+			end
+		end
+	end
+	-- Call the original function for non-trap damage
+	return baseFunc(victim, triggerArgs)
 end
