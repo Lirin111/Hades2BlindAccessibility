@@ -34,6 +34,163 @@ function NumUseableObjects(objects)
 	return count
 end
 
+-- HP tracking variables for audio notifications
+-- Initialize tracking variables
+lastHPPercentage = 100
+hpThresholdsPlayed = {}
+
+-- Boss/Mini-boss tracking
+bossHealthTracking = {}
+
+-- HP thresholds that trigger sounds (in descending order)
+local hpThresholds = {100, 90, 80, 70, 60, 50, 40, 30, 20, 10}
+
+-- Function to check and announce HP thresholds using TOLK
+function CheckAndPlayHPSound()
+	-- Check if player HP announcements are enabled
+	if not config.AnnouncePlayerHP then
+		return
+	end
+
+	-- Safety checks
+	if not CurrentRun or not CurrentRun.Hero then
+		return
+	end
+
+	local hero = CurrentRun.Hero
+	if not hero.Health or not hero.MaxHealth or hero.MaxHealth == 0 then
+		return
+	end
+
+	-- Calculate current HP percentage
+	local currentHPPercentage = math.floor((hero.Health / hero.MaxHealth) * 100)
+
+	-- Initialize lastHPPercentage if not set
+	if not lastHPPercentage then
+		lastHPPercentage = currentHPPercentage
+		hpThresholdsPlayed = {}
+		return
+	end
+
+	-- Check each threshold
+	for _, threshold in ipairs(hpThresholds) do
+		-- If we've crossed this threshold downward and haven't played it yet
+		if currentHPPercentage <= threshold and lastHPPercentage > threshold then
+			-- Mark this threshold as played
+			if not hpThresholdsPlayed[threshold] then
+				hpThresholdsPlayed[threshold] = true
+
+				-- Use TOLK to announce the HP percentage via screen reader
+				if rom and rom.tolk and rom.tolk.output then
+					rom.tolk.output("Health " .. threshold .. " percent", true)
+				end
+
+				-- Also try game sound as fallback (using existing game sounds)
+				PlaySound({ Name = "/SFX/Player Sounds/PlayerTakeDamageShieldBreak" })
+
+				break -- Only announce one threshold per damage event
+			end
+		-- If HP increases above a threshold, reset that threshold
+		elseif currentHPPercentage > threshold and hpThresholdsPlayed[threshold] then
+			hpThresholdsPlayed[threshold] = nil
+		end
+	end
+
+	-- Update last HP percentage
+	lastHPPercentage = currentHPPercentage
+end
+
+-- Function to check and announce boss/mini-boss HP
+function CheckBossHealth(enemy)
+	-- Safety checks
+	if not enemy or not enemy.ObjectId then
+		return
+	end
+
+	-- Only track bosses and elites
+	if not (enemy.IsBoss or enemy.IsElite) then
+		return
+	end
+
+	-- Check if boss/mini-boss HP announcements are enabled based on enemy type
+	if enemy.IsBoss and not config.AnnounceBossHP then
+		return
+	end
+	if enemy.IsElite and not config.AnnounceMiniBossHP then
+		return
+	end
+
+	-- Skip if enemy has no health or max health
+	if not enemy.Health or not enemy.MaxHealth or enemy.MaxHealth == 0 then
+		return
+	end
+
+	-- If enemy is dead, clean up and return
+	if enemy.Health <= 0 then
+		CleanupBossTracking(enemy)
+		return
+	end
+
+	-- Calculate current HP percentage
+	local currentHPPercentage = math.floor((enemy.Health / enemy.MaxHealth) * 100)
+
+	-- Get or create tracking data for this enemy
+	local trackingKey = tostring(enemy.ObjectId)
+	if not bossHealthTracking[trackingKey] then
+		bossHealthTracking[trackingKey] = {
+			lastHP = 100,
+			thresholdsPlayed = {},
+			name = enemy.Name or "Unknown",
+			isBoss = enemy.IsBoss or false,
+			isElite = enemy.IsElite or false
+		}
+	end
+
+	local tracking = bossHealthTracking[trackingKey]
+
+	-- Check each threshold
+	for _, threshold in ipairs(hpThresholds) do
+		-- If enemy HP crossed this threshold downward and hasn't been announced
+		if currentHPPercentage <= threshold and tracking.lastHP > threshold then
+			if not tracking.thresholdsPlayed[threshold] then
+				tracking.thresholdsPlayed[threshold] = true
+
+				-- Get enemy type for announcement
+				local enemyType = "Enemy"
+				if tracking.isBoss then
+					enemyType = "Boss"
+				elseif tracking.isElite then
+					enemyType = "Mini-boss"
+				end
+
+				-- Announce via TOLK
+				if rom and rom.tolk and rom.tolk.output then
+					rom.tolk.output(enemyType .. " " .. threshold .. " percent", true)
+				end
+
+				-- Play sound feedback
+				PlaySound({ Name = "/SFX/Player Sounds/PlayerTakeDamageShieldBreak" })
+
+				break -- Only announce one threshold per damage event
+			end
+		-- Reset threshold if HP increases
+		elseif currentHPPercentage > threshold and tracking.thresholdsPlayed[threshold] then
+			tracking.thresholdsPlayed[threshold] = nil
+		end
+	end
+
+	-- Update last HP
+	tracking.lastHP = currentHPPercentage
+end
+
+-- Clean up tracking for dead enemies
+function CleanupBossTracking(enemy)
+	if enemy and enemy.ObjectId then
+		local trackingKey = tostring(enemy.ObjectId)
+		bossHealthTracking[trackingKey] = nil
+	end
+end
+
 function wrap_InventoryScreenDisplayCategory(screen, categoryIndex, args)
 	args = args or {}
 	local components = screen.Components
@@ -1981,6 +2138,11 @@ function override_SpawnStoreItemInWorld(itemData, kitId)
 end
 
 function wrap_MetaUpgradeCardAction(screen, button)
+	-- Add nil check to prevent crash when button is nil (e.g., when clicking "forget")
+	if not button then
+		return
+	end
+
 	local selectedButton = button
 	local cardName = selectedButton.CardName
 	local metaUpgradeData = MetaUpgradeCardData[cardName]
@@ -2013,7 +2175,12 @@ end
 function wrap_UpdateMetaUpgradeCard(screen, row, column)
 	local components = screen.Components
 	local button = components.MemCostModule
-	if button.Id and MetaUpgradeCostData.MetaUpgradeLevelData[GetCurrentMetaUpgradeLimitLevel() + 1] then
+	-- Add nil check to prevent crash when button doesn't exist (e.g., when clicking "forget")
+	if not button or not button.Id then
+		return
+	end
+
+	if MetaUpgradeCostData.MetaUpgradeLevelData[GetCurrentMetaUpgradeLimitLevel() + 1] then
 		local nextCostData = MetaUpgradeCostData.MetaUpgradeLevelData[GetCurrentMetaUpgradeLimitLevel() + 1]
 		.ResourceCost
 		local nextMetaUpgradeLevel = MetaUpgradeCostData.MetaUpgradeLevelData[GetCurrentMetaUpgradeLimitLevel() + 1]
@@ -2116,14 +2283,7 @@ function wrap_GhostAdminDisplayCategory(screen, button)
 		local itemNameFormat = ShallowCopyTable(screen.ItemAvailableAffordableNameFormat)
 		itemNameFormat.Id = button.Id
 
-		local costText = GetDisplayName({ Text = "CannotUseChaosWeaponUpgrade", IgnoreSpecialFormatting = true }) --cheating here, this is just "Requires: {Hammer Icon}" and we just remove the Hammer Icon
-
-		for k, v in pairs(v.Cost) do
-			costText = costText .. " " .. v .. " " .. GetDisplayName({ Text = k, IgnoreSpecialFormatting = true }) .. ","
-		end
-		costText = costText:sub(1, -2) --remove final comma
-
-		itemNameFormat.Text = displayName .. " " .. costText
+		itemNameFormat.Text = displayName
 
 		DestroyTextBox({ Id = button.Id })
 		CreateTextBox(itemNameFormat)
@@ -2320,29 +2480,23 @@ function wrap_MarketScreenDisplayCategory(screen, categoryIndex)
 				" * " .. item.LeftDisplayAmount
 
 				local currentAmount = GameState.Resources[buyResourceData.Name] or 0
-				local bannerText = ""
-				if not item.Priority then
-					bannerText = GetDisplayName({ Text = "Market_LimitedTimeOffer" }) .. ". "
-				elseif item.HasUnmetRequirements then
-					bannerText = GetDisplayName({ Text = "MarketEarlySellWarning" }) .. ". "
-				end
 
 				local price = ""
+
 				if category.FlipSides then
-					price = GetDisplayName({ Text = "MarketScreen_SellingHeader" }) .. ": +"
+					price = GetDisplayName({ Text = "MarketScreen_SellingHeader" }) ..
+					": +" ..
+					costDisplay.MetaCurrency ..
+					" " .. GetDisplayName({ Text = "MetaCurrency", IgnoreSpecialFormatting = true })
 				else
-					price = GetDisplayName({ Text = "MarketScreen_BuyingHeader", IgnoreSpecialFormatting = true }) .. ": "
+					price = GetDisplayName({ Text = "MarketScreen_BuyingHeader", IgnoreSpecialFormatting = true }) ..
+					": " ..
+					costDisplay.MetaCurrency ..
+					" " .. GetDisplayName({ Text = "MetaCurrency", IgnoreSpecialFormatting = true })
 				end
 
-				local priceParts = {}
-				for resource, amount in pairs(costDisplay) do
-					local currencyName = GetDisplayName({ Text = resource, IgnoreSpecialFormatting = true })
-					table.insert(priceParts, amount .. " " .. currencyName)
-				end
-				price = price .. table.concat(priceParts, ", ") -- Combine all parts of the price
 
-				itemNameFormat.Text = bannerText .. 
-				displayName ..
+				itemNameFormat.Text = displayName ..
 				" " ..
 				GetDisplayName({ Text = "Inventory", IgnoreSpecialFormatting = true }) ..
 				": " .. currentAmount .. ", " .. price
@@ -3117,6 +3271,19 @@ function wrap_Damage(baseFunc, victim, triggerArgs)
 			end
 		end
 	end
+
 	-- Call the original function for non-trap damage
-	return baseFunc(victim, triggerArgs)
+	local result = baseFunc(victim, triggerArgs)
+
+	-- Check and announce HP for player
+	if victim and game.CurrentRun and game.CurrentRun.Hero and victim.ObjectId == game.CurrentRun.Hero.ObjectId then
+		CheckAndPlayHPSound()
+	end
+
+	-- Check and announce HP for bosses and mini-bosses
+	if victim and (victim.IsBoss or victim.IsElite) then
+		CheckBossHealth(victim)
+	end
+
+	return result
 end
