@@ -2799,7 +2799,12 @@ function wrap_CreateStoreButtons(baseFunc, args)
 		end
 		local upgradeData = args.LuaValue
 		local costString = "@GUI\\Icons\\Currency"
-		local costAmount = upgradeData.ResourceCosts["Money"] or 0
+		local costAmount = 0 -- Start by assuming the cost is 0.
+		
+		-- Now, only try to access ResourceCosts if it actually exists.
+		if upgradeData.ResourceCosts then
+			costAmount = upgradeData.ResourceCosts["Money"] or 0
+		end
 
 		costString = costAmount .. "/" .. GetResourceAmount( "Money" ) .. " " .. costString
 
