@@ -2480,23 +2480,29 @@ function wrap_MarketScreenDisplayCategory(screen, categoryIndex)
 				" * " .. item.LeftDisplayAmount
 
 				local currentAmount = GameState.Resources[buyResourceData.Name] or 0
-
-				local price = ""
-
-				if category.FlipSides then
-					price = GetDisplayName({ Text = "MarketScreen_SellingHeader" }) ..
-					": +" ..
-					costDisplay.MetaCurrency ..
-					" " .. GetDisplayName({ Text = "MetaCurrency", IgnoreSpecialFormatting = true })
-				else
-					price = GetDisplayName({ Text = "MarketScreen_BuyingHeader", IgnoreSpecialFormatting = true }) ..
-					": " ..
-					costDisplay.MetaCurrency ..
-					" " .. GetDisplayName({ Text = "MetaCurrency", IgnoreSpecialFormatting = true })
+				local bannerText = ""
+				if not item.Priority then
+					bannerText = GetDisplayName({ Text = "Market_LimitedTimeOffer" }) .. ". "
+				elseif item.HasUnmetRequirements then
+					bannerText = GetDisplayName({ Text = "MarketEarlySellWarning" }) .. ". "
 				end
 
+				local price = ""
+				if category.FlipSides then
+					price = GetDisplayName({ Text = "MarketScreen_SellingHeader" }) .. ": +"
+				else
+					price = GetDisplayName({ Text = "MarketScreen_BuyingHeader", IgnoreSpecialFormatting = true }) .. ": "
+				end
 
-				itemNameFormat.Text = displayName ..
+				local priceParts = {}
+				for resource, amount in pairs(costDisplay) do
+					local currencyName = GetDisplayName({ Text = resource, IgnoreSpecialFormatting = true })
+					table.insert(priceParts, amount .. " " .. currencyName)
+				end
+				price = price .. table.concat(priceParts, ", ") -- Combine all parts of the price
+
+				itemNameFormat.Text = bannerText .. 
+				displayName ..
 				" " ..
 				GetDisplayName({ Text = "Inventory", IgnoreSpecialFormatting = true }) ..
 				": " .. currentAmount .. ", " .. price
@@ -3149,25 +3155,37 @@ function override_ExorcismSequence( source, exorcismData, args, user )
 
 	for i, move in ipairs( exorcismData.MoveSequence ) do
 		rom.tolk.silence()
-		local extraTime = config.ExorcismTime
-		if move.Left and move.Right then
-			if config.ExorcismTime <= 2.4 then
-				extraTime = 2.4
-			end
+		
+			local consecutiveMistakes = 0
+		local reactionTime
+		if config.Exorcism.Time == 0 then
+			-- If Time is 0, go with the game's default.
+			local gameFailCount = exorcismData.ConsecutiveCheckFails or 14
+			reactionTime = gameFailCount * (exorcismData.InputCheckInterval or 0.1)
+		else
+			reactionTime = config.Exorcism.Time or 2.0
 		end
-		move.EndTime = _worldTime + extraTime
+		move.EndTime = _worldTime + reactionTime
+
 		ExorcismNextMovePresentation( source, args, user, move )
-		if config.SpeakExoricsm then
+		if config.Exorcism.Speak then
 			local outputText = ""
-			if move.Left then
-				outputText = outputText .. GetDisplayName({Text = "ExorcismLeft"})
+			if move.Left and move.Right then
+				outputText = config.Exorcism.CueBoth
+			elseif move.Left then
+				outputText = config.Exorcism.CueLeft
+			elseif move.Right then
+				outputText = config.Exorcism.CueRight
 			end
-			if move.Right then
-				outputText = outputText .. GetDisplayName({Text = "ExorcismRight"})
+
+			if outputText == nil or outputText == "" then
+				if move.Left then outputText = outputText .. GetDisplayName({Text = "ExorcismLeft"}) end
+				if move.Right then outputText = outputText .. GetDisplayName({Text = "ExorcismRight"}) end
 			end
 
 			rom.tolk.output(outputText)
 		end
+
 		local succeedCheck = false
 		while _worldTime < move.EndTime do
 			wait( exorcismData.InputCheckInterval or 0.1 )
@@ -3194,12 +3212,10 @@ function override_ExorcismSequence( source, exorcismData, args, user )
 					targetAnim = "Melinoe_Tablet_Right_End"
 				end
 			end
-
 			local nextAnim = nil
 			if targetAnim ~= nil and targetAnim ~= prevAnim then
 				nextAnim = targetAnim
 			end
-
 			if nextAnim ~= nil then
 				SetAnimation({ Name = nextAnim, DestinationId = user.ObjectId })
 				prevAnim = nextAnim
@@ -3208,31 +3224,38 @@ function override_ExorcismSequence( source, exorcismData, args, user )
 			local isLeftCorrect = move.Left == isLeftDown
 			local isRightCorrect = move.Right == isRightDown
 
-
-
 			ExorcismInputCheckPresentation( source, args, user, move, isLeftCorrect, isRightCorrect, isLeftDown, isRightDown, consecutiveCheckFails, exorcismData )
 
-			if isLeftCorrect and isRightCorrect and succeedCheck == false then
+			if isLeftCorrect and isRightCorrect then
 				consecutiveCheckFails = 0
-				succeedCheck = true
-				move.EndTime = _worldTime + move.Duration or 0.4
-			else
-				-- move.EndTime = move.EndTime + (exorcismData.InputCheckInterval or 0.1)
-				-- totalCheckFails = totalCheckFails + 1
-				-- consecutiveCheckFails = consecutiveCheckFails + 1
-				-- DebugPrint({ Text = "Exorcism consecutiveCheckFails = "..consecutiveCheckFails })
-				-- if totalCheckFails >= (exorcismData.TotalCheckFails or 99) or consecutiveCheckFails >= (exorcismData.ConsecutiveCheckFails or 14) then
-				-- 	return false
-				-- end
+				consecutiveMistakes = 0
+				if not succeedCheck then
+					succeedCheck = true
+					move.EndTime = _worldTime + (move.Duration or 0.4)
+				end
+else
+				succeedCheck = false
+				consecutiveCheckFails = consecutiveCheckFails + 1
+
+				if config.Exorcism.Failure == true then
+					local isPressingAnyButton = IsControlDown({ Name = "ExorcismLeft" }) or IsControlDown({ Name = "ExorcismRight" })
+
+					if isPressingAnyButton then
+						consecutiveMistakes = consecutiveMistakes + 1
+						totalCheckFails = totalCheckFails + 1
+						if totalCheckFails >= (exorcismData.TotalCheckFails or 99) or consecutiveMistakes >= (exorcismData.ConsecutiveCheckFails or 14) then
+							thread( DoRumble, { { LeftTriggerStrengthFraction = 0.0, RightTriggerStrengthFraction = 0.0, }, } )
+							return false
+						end
+					end
+				end
 			end
 		end
-		if succeedCheck == false then
+
+		if not succeedCheck then
+			thread( DoRumble, { { LeftTriggerStrengthFraction = 0.0, RightTriggerStrengthFraction = 0.0, }, } )
 			return false
 		end
-		-- if exorcismData.RequireCorrectAtMoveSwitch and consecutiveCheckFails > 0 then
-		-- 	return false
-		-- end
-
 		local key = "MovePipId"..move.Index
 		SetAnimation({ Name = "ExorcismPip_Full", DestinationId = source[key] })
 		if move.Left and move.Right then
@@ -3243,13 +3266,11 @@ function override_ExorcismSequence( source, exorcismData, args, user )
 		elseif move.Right then
 			CreateAnimation({ Name = "ExorcismSuccessHandRight", DestinationId = CurrentRun.Hero.ObjectId })
 		end
-		-- DebugPrint({ Text = "_AFTAR_ Exorcism Move "..i.." (Left = "..tostring(move.Left)..", Right = "..tostring(move.Right)..")" })
-		
 	end
 
-	DebugPrint({ Text = "totalCheckFails = "..totalCheckFails })
 	return true
 end
+
 function sjson_Chronos(data)
 	for k, v in ipairs(data.Projectiles) do
 		if v.Name == "ChronosCircle" or v.Name == "ChronosCircleInverted" then
