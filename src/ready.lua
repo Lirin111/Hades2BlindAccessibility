@@ -122,7 +122,18 @@ modutil.mod.Path.Wrap("GhostAdminDisplayCategory", function(baseFunc, screen, bu
 end)
 
 modutil.mod.Path.Override("GhostAdminScreenRevealNewItemsPresentation", function(screen, button)
-	return override_GhostAdminScreenRevealNewItemsPresentation( screen, button )
+	-- Add comprehensive safety checks before calling override function
+	if not screen then
+		return
+	end
+	-- Safely call the override function with error handling
+	local success, result = pcall(override_GhostAdminScreenRevealNewItemsPresentation, screen, button)
+	if not success then
+		-- Log the error but don't crash the game
+		print("Accessibility mod: Error in GhostAdminScreenRevealNewItemsPresentation - " .. tostring(result))
+		return
+	end
+	return result
 end)
 
 modutil.mod.Path.Wrap("MarketScreenDisplayCategory", function(baseFunc, screen, categoryIndex)
@@ -180,7 +191,8 @@ end)
 
 modutil.mod.Path.Context.Wrap("HighlightTalentButton", function( button )
 	modutil.mod.Path.Wrap("ModifyTextBox", function(baseFunc, args)
-		return nil
+		-- Allow the base ModifyTextBox to work so TOLK can read it
+		return baseFunc(args)
 	end)
 end)
 
@@ -196,7 +208,11 @@ modutil.mod.Path.Override("ExorcismSequence", function(source, exorcismData, arg
 	return override_ExorcismSequence(source, exorcismData, args, user)
 end)
 
-local projectilePath = rom.path.combine(rom.paths.Content, 'Game/Projectiles/EnemyProjectiles.sjson')
+modutil.mod.Path.Wrap("Damage", function(baseFunc, victim, triggerArgs)
+	return wrap_Damage(baseFunc, victim, triggerArgs)
+end)
+
+local projectilePath = rom.path.combine(rom.paths.Content, 'Game/Projectiles/Enemy_BiomeI_Projectiles.sjson')
 
 sjson.hook(projectilePath, function(data)
 	return sjson_Chronos(data)

@@ -47,28 +47,35 @@ local hpThresholds = {100, 90, 80, 70, 60, 50, 40, 30, 20, 10}
 
 -- Function to check and announce HP thresholds using TOLK
 function CheckAndPlayHPSound()
-	-- Check if player HP announcements are enabled
-	if not config.AnnouncePlayerHP then
+	print("CheckAndPlayHPSound called")
+
+	-- Check if player HP announcements are enabled (default to true if config not available)
+	if config and config.AnnouncePlayerHP == false then
+		print("HP announcements disabled by config")
 		return
 	end
 
 	-- Safety checks
 	if not CurrentRun or not CurrentRun.Hero then
+		print("CurrentRun or Hero not available")
 		return
 	end
 
 	local hero = CurrentRun.Hero
 	if not hero.Health or not hero.MaxHealth or hero.MaxHealth == 0 then
+		print("Hero health data not available")
 		return
 	end
 
 	-- Calculate current HP percentage
 	local currentHPPercentage = math.floor((hero.Health / hero.MaxHealth) * 100)
+	print("Current HP: " .. currentHPPercentage .. "%, Last HP: " .. tostring(lastHPPercentage))
 
 	-- Initialize lastHPPercentage if not set
 	if not lastHPPercentage then
 		lastHPPercentage = currentHPPercentage
 		hpThresholdsPlayed = {}
+		print("Initialized HP tracking at " .. currentHPPercentage .. "%")
 		return
 	end
 
@@ -79,14 +86,18 @@ function CheckAndPlayHPSound()
 			-- Mark this threshold as played
 			if not hpThresholdsPlayed[threshold] then
 				hpThresholdsPlayed[threshold] = true
+				print("HP threshold crossed: " .. threshold .. "%")
 
 				-- Use TOLK to announce the HP percentage via screen reader
 				if rom and rom.tolk and rom.tolk.output then
+					print("Announcing via TOLK: Health " .. threshold .. " percent")
 					rom.tolk.output("Health " .. threshold .. " percent", true)
+				else
+					print("TOLK not available!")
 				end
 
-				-- Also try game sound as fallback (using existing game sounds)
-				PlaySound({ Name = "/SFX/Player Sounds/PlayerTakeDamageShieldBreak" })
+				-- Sound removed to prevent FMOD crash during boss fights
+				-- PlaySound({ Name = "/SFX/Player Sounds/PlayerTakeDamageShieldBreak" })
 
 				break -- Only announce one threshold per damage event
 			end
@@ -102,8 +113,11 @@ end
 
 -- Function to check and announce boss/mini-boss HP
 function CheckBossHealth(enemy)
+	print("CheckBossHealth called")
+
 	-- Safety checks
 	if not enemy or not enemy.ObjectId then
+		print("Enemy or ObjectId not available")
 		return
 	end
 
@@ -112,16 +126,37 @@ function CheckBossHealth(enemy)
 		return
 	end
 
-	-- Check if boss/mini-boss HP announcements are enabled based on enemy type
-	if enemy.IsBoss and not config.AnnounceBossHP then
-		return
-	end
-	if enemy.IsElite and not config.AnnounceMiniBossHP then
-		return
-	end
+	print("Enemy is Boss: " .. tostring(enemy.IsBoss) .. ", Elite: " .. tostring(enemy.IsElite))
 
 	-- Skip if enemy has no health or max health
 	if not enemy.Health or not enemy.MaxHealth or enemy.MaxHealth == 0 then
+		print("Enemy health data not available")
+		return
+	end
+
+	-- Distinguish between actual mini-bosses and regular elite enemies
+	-- Regular enemies typically have MaxHealth < 1000, mini-bosses have significantly more
+	local isActualMiniBoss = false
+	if enemy.IsElite and not enemy.IsBoss then
+		-- Check if this is a true mini-boss based on health threshold
+		-- Mini-bosses typically have 1000+ MaxHealth, regular elites have less
+		if enemy.MaxHealth >= 1000 then
+			isActualMiniBoss = true
+			print("Detected mini-boss with MaxHealth: " .. enemy.MaxHealth)
+		else
+			-- This is just a regular elite enemy, not a mini-boss, skip it
+			print("Skipping regular elite with MaxHealth: " .. enemy.MaxHealth)
+			return
+		end
+	end
+
+	-- Check if boss/mini-boss HP announcements are enabled based on enemy type (default to true if config not available)
+	if enemy.IsBoss and config and config.AnnounceBossHP == false then
+		print("Boss HP announcements disabled by config")
+		return
+	end
+	if isActualMiniBoss and config and config.AnnounceMiniBossHP == false then
+		print("Mini-boss HP announcements disabled by config")
 		return
 	end
 
@@ -133,6 +168,7 @@ function CheckBossHealth(enemy)
 
 	-- Calculate current HP percentage
 	local currentHPPercentage = math.floor((enemy.Health / enemy.MaxHealth) * 100)
+	print("Boss/Enemy HP: " .. currentHPPercentage .. "%")
 
 	-- Get or create tracking data for this enemy
 	local trackingKey = tostring(enemy.ObjectId)
@@ -142,8 +178,9 @@ function CheckBossHealth(enemy)
 			thresholdsPlayed = {},
 			name = enemy.Name or "Unknown",
 			isBoss = enemy.IsBoss or false,
-			isElite = enemy.IsElite or false
+			isMiniBoss = isActualMiniBoss
 		}
+		print("Initialized boss tracking for: " .. (enemy.Name or "Unknown"))
 	end
 
 	local tracking = bossHealthTracking[trackingKey]
@@ -159,17 +196,22 @@ function CheckBossHealth(enemy)
 				local enemyType = "Enemy"
 				if tracking.isBoss then
 					enemyType = "Boss"
-				elseif tracking.isElite then
+				elseif tracking.isMiniBoss then
 					enemyType = "Mini-boss"
 				end
 
+				print("Boss HP threshold crossed: " .. threshold .. "%")
+
 				-- Announce via TOLK
 				if rom and rom.tolk and rom.tolk.output then
+					print("Announcing via TOLK: " .. enemyType .. " " .. threshold .. " percent")
 					rom.tolk.output(enemyType .. " " .. threshold .. " percent", true)
+				else
+					print("TOLK not available!")
 				end
 
-				-- Play sound feedback
-				PlaySound({ Name = "/SFX/Player Sounds/PlayerTakeDamageShieldBreak" })
+				-- Sound removed to prevent FMOD crash during boss fights
+				-- PlaySound({ Name = "/SFX/Player Sounds/PlayerTakeDamageShieldBreak" })
 
 				break -- Only announce one threshold per damage event
 			end
@@ -193,6 +235,11 @@ end
 
 function wrap_InventoryScreenDisplayCategory(screen, categoryIndex, args)
 	args = args or {}
+
+	-- Ensure proper navigation settings for inventory/planting screen
+	-- Reset any settings that might have been changed by other menus
+	SetConfigOption({ Name = "FreeFormSelectWrapY", Value = true })
+
 	local components = screen.Components
 	local category = screen.ItemCategories[categoryIndex]
 	if category.Locked then
@@ -207,7 +254,7 @@ function wrap_InventoryScreenDisplayCategory(screen, categoryIndex, args)
 		local resourceData = ResourceData[resourceName]
 		--mod menu
 		if not resourceData then
-			return
+			goto continue
 		end
 		if CanShowResourceInInventory( resourceData ) then
 			local textLines = nil
@@ -266,36 +313,48 @@ function wrap_InventoryScreenDisplayCategory(screen, categoryIndex, args)
 
 			-- Create the main text box with name, amount, and status
 			ModifyTextBox({
-				Id = button.Id,
-				Text = GetDisplayName({ Text = resourceName, IgnoreSpecialFormatting = true }) ..
-				": " .. (GameState.Resources[resourceName] or 0) .. ", " .. statusText,
-				UseDescription = false
-			})
+				Id = button.Id, Text = GetDisplayName({ Text = resourceName, IgnoreSpecialFormatting = true }) .. ": " .. (GameState.Resources[resourceName] or 0) .. ", " .. statusText, UseDescription = false
+		})
 
-			-- Create a second text box with the details description
-			local detailsKey = resourceName .. "_Details"
+		-- Add invisible description text for screen reader
+		CreateTextBox({
+			Id = button.Id,
+			Text = resourceName,
+			UseDescription = true,
+			Color = Color.Transparent,
+		})
+
+		-- Add invisible details text for screen reader (location sources)
+		local detailsKey = resourceName .. "_Details"
+		CreateTextBox({
+			Id = button.Id,
+			Text = detailsKey,
+			UseDescription = true,
+			Color = Color.Transparent,
+		})
+
+		-- Add invisible extra details text for screen reader (NPC offerings, etc.) - only if it exists
+		local extraDetailsKey = resourceName .. "_ExtraDetails1"
+		local extraDetailsText = GetDisplayName({ Text = extraDetailsKey })
+		if extraDetailsText ~= nil and extraDetailsText ~= extraDetailsKey then
 			CreateTextBox({
 				Id = button.Id,
-				Text = detailsKey,
+				Text = extraDetailsKey,
 				UseDescription = true,
-				OffsetY = 0,
-				FontSize = 1,
-				Color = {0, 0, 0, 0},  -- Invisible
-				SkipDraw = true
-			})
-
-			-- Create a third text box with the flavor text
-			local flavorKey = resourceName .. "_Flavor"
-			CreateTextBox({
-				Id = button.Id,
-				Text = flavorKey,
-				UseDescription = true,
-				OffsetY = 0,
-				FontSize = 1,
-				Color = {0, 0, 0, 0},  -- Invisible
-				SkipDraw = true
+				Color = Color.Transparent,
 			})
 		end
+
+		-- Add invisible flavor text for screen reader
+		local flavorKey = resourceName .. "_Flavor"
+		CreateTextBox({
+			Id = button.Id,
+			Text = flavorKey,
+			UseDescription = true,
+			Color = Color.Transparent,
+		})
+		end
+		::continue::
 	end
 end
 
@@ -316,7 +375,14 @@ function OnInventoryPress()
 		end
 	end
 
-	if TableLength(MapState.OfferedExitDoors) == 0 and GetMapName() ~= "Hub_Main" and not hasAsphodelExit then
+	-- Check if we're in Tartarus, Olympus, or Surface
+	local curMap = GetMapName()
+	local inTartarus = curMap and curMap:find("I_") == 1
+	local inOlympus = curMap and curMap:find("P_") == 1
+	local inSurface = curMap and curMap:find("F_") == 1
+
+	-- Don't return early if we're in Tartarus, Olympus, or Surface (allow menu to open even without doors)
+	if TableLength(MapState.OfferedExitDoors) == 0 and GetMapName() ~= "Hub_Main" and not hasAsphodelExit and not inTartarus and not inOlympus and not inSurface then
 		return
 	elseif TableLength(MapState.OfferedExitDoors) == 1 and string.find(GetMapName(), "D_Hub") then
 		finalBossDoor = CollapseTable(MapState.OfferedExitDoors)[1]
@@ -335,6 +401,10 @@ function OnInventoryPress()
 			-- Open menu for Asphodel with empty doors list, will be populated by AddAsphodelExit
 			TraitTrayScreenClose(ActiveScreens.TraitTrayScreen)
 			OpenAssesDoorShowerMenu({})
+		elseif inTartarus or inOlympus or inSurface then
+			-- Open menu for Tartarus/Olympus/Surface even without doors unlocked (works like Crossroads)
+			TraitTrayScreenClose(ActiveScreens.TraitTrayScreen)
+			OpenAssesDoorShowerMenu(CollapseTable(MapState.OfferedExitDoors))
 		end
 	end
 end
@@ -372,8 +442,14 @@ function OpenAssesDoorShowerMenu(doors)
 	SetScale({ Id = components.ShopBackgroundDim.Id, Fraction = 4 })
 	SetColor({ Id = components.ShopBackgroundDim.Id, Color = { 0, 0, 0, 1 } })
 
+	-- Add points of interest (NPCs, inspect points, wells, etc.) to the doors list
+	local pointsOfInterest = ProcessTable({})
+	local allInteractables = ShallowCopyTable(doors)
+	for _, poi in ipairs(pointsOfInterest) do
+		table.insert(allInteractables, poi)
+	end
 
-	CreateAssesDoorButtons(screen, doors)
+	CreateAssesDoorButtons(screen, allInteractables)
 	screen.KeepOpen = true
 	-- thread( HandleWASDInput, screen )
 	HandleScreenInput(screen)
@@ -402,7 +478,9 @@ function CreateAssesDoorButtons(screen, doors)
 	local inCityHub = GetMapName() == "N_Hub"
 	local inCityRoom = GetMapName():find("N_") == 1 and not inCityHub
 	local inShip = GetMapName():find("O_") == 1
-	local inHouse = GetMapName():find("I_") == 1
+	local inTartarus = GetMapName():find("I_") == 1
+	local inOlympus = GetMapName():find("P_") == 1
+	local inSurface = GetMapName():find("F_") == 1
 	if inCityHub then
 		curX = 500
 		local doorSortValue = function(door)
@@ -428,7 +506,7 @@ function CreateAssesDoorButtons(screen, doors)
 
 	CreateTextBox({
 		Id = components[healthKey].Id,
-		Text = "Health: " .. (CurrentRun.Hero.Health or 0) .. "/" .. (CurrentRun.Hero.MaxHealth or 0),
+		Text = GetDisplayName({ Text = "Health", IgnoreSpecialFormatting = true }) .. ": " .. (CurrentRun.Hero.Health or 0) .. "/" .. (CurrentRun.Hero.MaxHealth or 0),
 		FontSize = 24,
 		OffsetX = -100,
 		OffsetY = 0,
@@ -454,7 +532,7 @@ function CreateAssesDoorButtons(screen, doors)
 	AttachLua({ Id = components[armorKey].Id, Table = components[armorKey] })
 	CreateTextBox({
 		Id = components[armorKey].Id,
-		Text = "Armor: " .. (CurrentRun.Hero.HealthBuffer or 0),
+		Text = GetDisplayName({ Text = "Armor", IgnoreSpecialFormatting = true }) .. ": " .. (CurrentRun.Hero.HealthBuffer or 0),
 		FontSize = 24,
 		OffsetX = -100,
 		OffsetY = 0,
@@ -480,7 +558,7 @@ function CreateAssesDoorButtons(screen, doors)
 	AttachLua({ Id = components[goldKey].Id, Table = components[goldKey] })
 	CreateTextBox({
 		Id = components[goldKey].Id,
-		Text = "Gold: " .. (GameState.Resources["Money"] or 0),
+		Text = GetDisplayName({ Text = "Money", IgnoreSpecialFormatting = true }) .. ": " .. (GameState.Resources["Money"] or 0),
 		FontSize = 24,
 		OffsetX = -100,
 		-- OffsetY = yIncrement * 2,
@@ -506,7 +584,39 @@ function CreateAssesDoorButtons(screen, doors)
 	AttachLua({ Id = components[manaKey].Id, Table = components[manaKey] })
 	CreateTextBox({
 		Id = components[manaKey].Id,
-		Text = "Mana: " .. (CurrentRun.Hero.Mana or 0) .. "/" .. (CurrentRun.Hero.MaxMana or 0),
+		Text = GetDisplayName({ Text = "Mana", IgnoreSpecialFormatting = true }) .. ": " .. (CurrentRun.Hero.Mana or 0) .. "/" .. (CurrentRun.Hero.MaxMana or 0),
+		FontSize = 24,
+		OffsetX = -100,
+		OffsetY = 0,
+		Color = Color.White,
+		Font = "P22UndergroundSCMedium",
+		Group = "Asses_UI",
+		ShadowBlur = 0,
+		ShadowColor = { 0, 0, 0, 1 },
+		ShadowOffset = { 0, 2 },
+		Justification = "Left",
+	})
+	curY = curY + yIncrement
+
+	local deathDefianceKey = "AssesResourceMenuInformationDeathDefiance"
+	components[deathDefianceKey] =
+		CreateScreenComponent({
+			Name = "ButtonDefault",
+			Group = "Asses_UI",
+			Scale = 0.8,
+			X = 960,
+			Y = curY
+		})
+	AttachLua({ Id = components[deathDefianceKey].Id, Table = components[deathDefianceKey] })
+	local deathDefianceCount = 0
+	if CurrentRun.Hero.LastStands then
+		for i, v in pairs(CurrentRun.Hero.LastStands) do
+			deathDefianceCount = deathDefianceCount + 1
+		end
+	end
+	CreateTextBox({
+		Id = components[deathDefianceKey].Id,
+		Text = GetDisplayName({ Text = "ExtraChance", IgnoreSpecialFormatting = true }) .. ": " .. deathDefianceCount,
 		FontSize = 24,
 		OffsetX = -100,
 		OffsetY = 0,
@@ -521,14 +631,20 @@ function CreateAssesDoorButtons(screen, doors)
 	curY = curY + yIncrement + 30
 	for k, door in pairs(doors) do
 		local showDoor = true
-		if string.find(GetMapName(), "D_Hub") then
-			if door.Room.Name:find("D_Boss", 1, true) == 1 and GetDistance({ Id = 547487, DestinationId = 551569 }) ~= 0 then
+		local isPOI = (door.Room == nil) -- POI objects don't have a Room property
+
+		if string.find(GetMapName(), "D_Hub") and not isPOI then
+			if door.Room and door.Room.Name:find("D_Boss", 1, true) == 1 and GetDistance({ Id = 547487, DestinationId = 551569 }) ~= 0 then
 				showDoor = false
 			end
 		end
 		if showDoor then
 			local displayText = ""
-			if inShip then
+
+			-- Handle POI objects (NPCs, inspect points, wells, etc.)
+			if isPOI then
+				displayText = door.Name or "Unknown"
+			elseif inShip then
 				if door.Name == "ShipsExitDoor" or door.Name == "ShipsPostBossDoor" then
 					if door.RewardPreviewAnimName == "ShopPreview" then
 						displayText = GetDisplayName({ Text = "UseStore", IgnoreSpecialFormatting = true })
@@ -656,7 +772,8 @@ function CreateAssesDoorButtons(screen, doors)
 				isFirstButton = false
 			end
 			curY = curY + yIncrement
-			if inCityHub and curY > 900 then
+			-- Support unlimited columns by wrapping to a new column when Y exceeds limit
+			if curY > 900 then
 				curY = startY + yIncrement * 3 + 30
 				curX = curX + 250
 			end
@@ -665,7 +782,9 @@ function CreateAssesDoorButtons(screen, doors)
 end
 
 function rom.game.BlindAccessCloseAssesDoorShowerScreen(screen, button)
+	-- Reset config options back to defaults to prevent affecting other menus
 	SetConfigOption({ Name = "ExclusiveInteractGroup", Value = nil })
+	SetConfigOption({ Name = "FreeFormSelectWrapY", Value = true })
 	OnScreenCloseStarted(screen)
 	CloseScreen(GetAllIds(screen.Components), 0.15)
 	OnScreenCloseFinished(screen)
@@ -766,6 +885,22 @@ local mapPointsOfInterest = {
 			if name ~= "" then
 				table.insert(copy, { Name = name, ObjectId = objectId, DestinationOffsetX = 100 })
 			end
+
+			-- Add rubbish piles (Eris's trash) if they exist
+			local rubbishIds = GetIdsByType({ Name = "TrashPointsDrop" })
+			if rubbishIds then
+				for i, rubbishId in ipairs(rubbishIds) do
+					if IsUseable({ Id = rubbishId }) then
+						local rubbishName = GetDisplayName({ Text = "TrashPoints", IgnoreSpecialFormatting = true })
+						if rubbishName == "TrashPoints" then
+							-- If translation doesn't exist, use a fallback
+							rubbishName = "Rubbish"
+						end
+						table.insert(copy, { Name = rubbishName .. " " .. i, ObjectId = rubbishId })
+					end
+				end
+			end
+
 			-- Add lore interactables (InspectPoints) for Crossroads
 			copy = AddInspectPoints(copy)
 			return copy
@@ -817,7 +952,7 @@ local mapPointsOfInterest = {
 			{ Name = "BountyBoard",                     ObjectId = 561146, DestinationOffsetX = -17, DestinationOffsetY = 82 },
 			{ Name = "Keepsakes",                       ObjectId = 421320, DestinationOffsetX = 119, DestinationOffsetY = 30 },
 			{ Name = "BiomeF",                          ObjectId = 587938, DestinationOffsetX = 263, DestinationOffsetY = -293, RequireUseable = false },
-			{ Name = "RunHistoryScreen_RouteN",         ObjectId = 587935, DestinationOffsetX = -162, DestinationOffsetY = 194, RequireUseable = false },
+			{ Name = "BiomeN",                          ObjectId = 587935, DestinationOffsetX = -162, DestinationOffsetY = 194, RequireUseable = false },
 			{ Name = "ShrineMenu",                      ObjectId = 589694, DestinationOffsetY = 90 },
 			{ Name = "Hub",                             ObjectId = 588689, RequireUseable = false },
 		}
@@ -868,6 +1003,36 @@ local mapPointsOfInterest = {
 			return t
 		end
 	},
+	-- Tartarus biome rooms (I_ prefix)
+	["I_*"] = {
+		AddNPCs = true,
+		SetupFunction = function(t)
+			-- Add lore interactables (InspectPoints) for Tartarus rooms
+			t = AddInspectPoints(t)
+			return t
+		end,
+		Objects = {}
+	},
+	-- Olympus biome rooms (P_ prefix)
+	["P_*"] = {
+		AddNPCs = true,
+		SetupFunction = function(t)
+			-- Add lore interactables (InspectPoints) for Olympus rooms
+			t = AddInspectPoints(t)
+			return t
+		end,
+		Objects = {}
+	},
+	-- Surface biome rooms (F_ prefix)
+	["F_*"] = {
+		AddNPCs = true,
+		SetupFunction = function(t)
+			-- Add lore interactables (InspectPoints) for Surface rooms
+			t = AddInspectPoints(t)
+			return t
+		end,
+		Objects = {}
+	},
 	-- Default room config for all biomes with NPCs
 	["*"] = {
 		AddNPCs = true,
@@ -888,7 +1053,18 @@ function ProcessTable(objects, blockIds)
 
 	local currMap = GetMapName()
 	for map_name, map_data in pairs(mapPointsOfInterest) do
+		local mapMatches = false
 		if map_name == currMap or map_name == "*" then
+			mapMatches = true
+		elseif map_name:find("*", 1, true) then
+			-- Handle wildcard patterns like "I_*" or "P_*"
+			local pattern = map_name:gsub("%*", "")
+			if currMap and currMap:find(pattern, 1, true) == 1 then
+				mapMatches = true
+			end
+		end
+
+		if mapMatches then
 			DebugPrintTable(map_data.Objects)
 			for _, object in pairs(map_data.Objects) do
 				if object.RequireUseable == false or IsUseable({ Id = object.ObjectId }) then
@@ -927,11 +1103,13 @@ function ProcessTable(objects, blockIds)
 	t = AddPoisonCure(t)
 	t = AddGiftRack(t)
 
+	-- Always add these items - they check IsUseable internally so only useable items will be added
+	t = AddTrove(t)
+	t = AddWell(t)
+	t = AddSurfaceShop(t)
+	t = AddPool(t)
+	-- Only add inspect points if exits are unlocked OR in Asphodel (to avoid duplicates from SetupFunction)
 	if CurrentRun and CurrentRun.CurrentRoom and (CurrentRun.CurrentRoom.ExitsUnlocked or inAsphodel) then
-		t = AddTrove(t)
-		t = AddWell(t)
-		t = AddSurfaceShop(t)
-		t = AddPool(t)
 		t = AddInspectPoints(t)
 	end
 
@@ -1129,6 +1307,7 @@ function AddInspectPoints(objects)
 end
 
 function AddNPCs(objects)
+	-- Don't add NPCs during active combat, but allow after combat even if exits aren't unlocked yet
 	if CurrentRun and IsCombatEncounterActive(CurrentRun) then
 		return objects
 	end
@@ -1240,7 +1419,7 @@ function CreateRewardButtons(screen, rewards)
 
 		CreateTextBox({
 			Id = components[healthKey].Id,
-			Text = "Health: " .. (CurrentRun.Hero.Health or 0) .. "/" .. (CurrentRun.Hero.MaxHealth or 0),
+			Text = GetDisplayName({ Text = "Health", IgnoreSpecialFormatting = true }) .. ": " .. (CurrentRun.Hero.Health or 0) .. "/" .. (CurrentRun.Hero.MaxHealth or 0),
 			FontSize = 24,
 			OffsetX = -100,
 			OffsetY = 0,
@@ -1266,7 +1445,7 @@ function CreateRewardButtons(screen, rewards)
 		AttachLua({ Id = components[armorKey].Id, Table = components[armorKey] })
 		CreateTextBox({
 			Id = components[armorKey].Id,
-			Text = "Armor: " .. (CurrentRun.Hero.HealthBuffer or 0),
+			Text = GetDisplayName({ Text = "Armor", IgnoreSpecialFormatting = true }) .. ": " .. (CurrentRun.Hero.HealthBuffer or 0),
 			FontSize = 24,
 			OffsetX = -100,
 			OffsetY = 0,
@@ -1292,7 +1471,7 @@ function CreateRewardButtons(screen, rewards)
 		AttachLua({ Id = components[goldKey].Id, Table = components[goldKey] })
 		CreateTextBox({
 			Id = components[goldKey].Id,
-			Text = "Gold: " .. (GameState.Resources["Money"] or 0),
+			Text = GetDisplayName({ Text = "Money", IgnoreSpecialFormatting = true }) .. ": " .. (GameState.Resources["Money"] or 0),
 			FontSize = 24,
 			OffsetX = -100,
 			-- OffsetY = yIncrement * 2,
@@ -1318,7 +1497,39 @@ function CreateRewardButtons(screen, rewards)
 		AttachLua({ Id = components[manaKey].Id, Table = components[manaKey] })
 		CreateTextBox({
 			Id = components[manaKey].Id,
-			Text = "Mana: " .. (CurrentRun.Hero.Mana or 0) .. "/" .. (CurrentRun.Hero.MaxMana or 0),
+			Text = GetDisplayName({ Text = "Mana", IgnoreSpecialFormatting = true }) .. ": " .. (CurrentRun.Hero.Mana or 0) .. "/" .. (CurrentRun.Hero.MaxMana or 0),
+			FontSize = 24,
+			OffsetX = -100,
+			OffsetY = 0,
+			Color = Color.White,
+			Font = "P22UndergroundSCMedium",
+			Group = "Menu_UI_Rewards",
+			ShadowBlur = 0,
+			ShadowColor = { 0, 0, 0, 1 },
+			ShadowOffset = { 0, 2 },
+			Justification = "Left",
+		})
+		curY = curY + yIncrement
+
+		local deathDefianceKey = "AssesResourceMenuInformationDeathDefiance"
+		components[deathDefianceKey] =
+			CreateScreenComponent({
+				Name = "ButtonDefault",
+				Group = "Menu_UI_Rewards",
+				Scale = 0.8,
+				X = 960,
+				Y = curY
+			})
+		AttachLua({ Id = components[deathDefianceKey].Id, Table = components[deathDefianceKey] })
+		local deathDefianceCount = 0
+		if CurrentRun.Hero.LastStands then
+			for i, v in pairs(CurrentRun.Hero.LastStands) do
+				deathDefianceCount = deathDefianceCount + 1
+			end
+		end
+		CreateTextBox({
+			Id = components[deathDefianceKey].Id,
+			Text = GetDisplayName({ Text = "ExtraChance", IgnoreSpecialFormatting = true }) .. ": " .. deathDefianceCount,
 			FontSize = 24,
 			OffsetX = -100,
 			OffsetY = 0,
@@ -1389,7 +1600,7 @@ function CreateRewardButtons(screen, rewards)
 		if reward.IsShopItem then
 			CreateTextBox({
 				Id = components[buttonKey].Id,
-				Text = reward.ResourceCosts.Money .. " Gold",
+				Text = reward.ResourceCosts.Money .. " " .. GetDisplayName({ Text = "Money", IgnoreSpecialFormatting = true }),
 				FontSize = 24,
 				OffsetX = -520,
 				OffsetY = 30,
@@ -1520,7 +1731,7 @@ function CreateItemButtons(screen, items)
 
 	CreateTextBox({
 		Id = components[healthKey].Id,
-		Text = "Health: " .. (CurrentRun.Hero.Health or 0) .. "/" .. (CurrentRun.Hero.MaxHealth or 0),
+		Text = GetDisplayName({ Text = "Health", IgnoreSpecialFormatting = true }) .. ": " .. (CurrentRun.Hero.Health or 0) .. "/" .. (CurrentRun.Hero.MaxHealth or 0),
 		FontSize = 24,
 		OffsetX = -100,
 		OffsetY = 0,
@@ -1546,7 +1757,7 @@ function CreateItemButtons(screen, items)
 	AttachLua({ Id = components[armorKey].Id, Table = components[armorKey] })
 	CreateTextBox({
 		Id = components[armorKey].Id,
-		Text = "Armor: " .. (CurrentRun.Hero.HealthBuffer or 0),
+		Text = GetDisplayName({ Text = "Armor", IgnoreSpecialFormatting = true }) .. ": " .. (CurrentRun.Hero.HealthBuffer or 0),
 		FontSize = 24,
 		OffsetX = -100,
 		OffsetY = 0,
@@ -1572,7 +1783,7 @@ function CreateItemButtons(screen, items)
 	AttachLua({ Id = components[goldKey].Id, Table = components[goldKey] })
 	CreateTextBox({
 		Id = components[goldKey].Id,
-		Text = "Gold: " .. (GameState.Resources["Money"] or 0),
+		Text = GetDisplayName({ Text = "Money", IgnoreSpecialFormatting = true }) .. ": " .. (GameState.Resources["Money"] or 0),
 		FontSize = 24,
 		OffsetX = -100,
 		-- OffsetY = yIncrement * 2,
@@ -1598,7 +1809,39 @@ function CreateItemButtons(screen, items)
 	AttachLua({ Id = components[manaKey].Id, Table = components[manaKey] })
 	CreateTextBox({
 		Id = components[manaKey].Id,
-		Text = "Mana: " .. (CurrentRun.Hero.Mana or 0) .. "/" .. (CurrentRun.Hero.MaxMana or 0),
+		Text = GetDisplayName({ Text = "Mana", IgnoreSpecialFormatting = true }) .. ": " .. (CurrentRun.Hero.Mana or 0) .. "/" .. (CurrentRun.Hero.MaxMana or 0),
+		FontSize = 24,
+		OffsetX = -100,
+		OffsetY = 0,
+		Color = Color.White,
+		Font = "P22UndergroundSCMedium",
+		Group = "Asses_UI_Store",
+		ShadowBlur = 0,
+		ShadowColor = { 0, 0, 0, 1 },
+		ShadowOffset = { 0, 2 },
+		Justification = "Left",
+	})
+	curY = curY + yIncrement
+
+	local deathDefianceKey = "AssesResourceMenuInformationDeathDefiance"
+	components[deathDefianceKey] =
+		CreateScreenComponent({
+			Name = "ButtonDefault",
+			Group = "Asses_UI_Store",
+			Scale = 0.8,
+			X = 960,
+			Y = curY
+		})
+	AttachLua({ Id = components[deathDefianceKey].Id, Table = components[deathDefianceKey] })
+	local deathDefianceCount = 0
+	if CurrentRun.Hero.LastStands then
+		for i, v in pairs(CurrentRun.Hero.LastStands) do
+			deathDefianceCount = deathDefianceCount + 1
+		end
+	end
+	CreateTextBox({
+		Id = components[deathDefianceKey].Id,
+		Text = GetDisplayName({ Text = "ExtraChance", IgnoreSpecialFormatting = true }) .. ": " .. deathDefianceCount,
 		FontSize = 24,
 		OffsetX = -100,
 		OffsetY = 0,
@@ -1652,7 +1895,7 @@ function CreateItemButtons(screen, items)
 			})
 			CreateTextBox({
 				Id = components[buttonKey].Id,
-				Text = item.ResourceCosts.Money .. " Gold",
+				Text = item.ResourceCosts.Money .. " " .. GetDisplayName({ Text = "Money", IgnoreSpecialFormatting = true }),
 				FontSize = 24,
 				OffsetX = -520,
 				OffsetY = 30,
@@ -1884,10 +2127,12 @@ function OnCodexPress()
 					end
 					if MapState.SurfaceShopItems and TableLength(MapState.SurfaceShopItems) > 0 then
 						for k, v in pairs(MapState.SurfaceShopItems) do
-							table.insert(rewardsTable,
-								{ IsShopItem = true, Name = v.Name, ObjectId = v.ObjectId, ResourceCosts = v
-								.ResourceCosts })
-							blockedIds[v.ObjectId] = true
+							if v and v.ObjectId and v.Name and v.ResourceCosts then
+								table.insert(rewardsTable,
+									{ IsShopItem = true, Name = v.Name, ObjectId = v.ObjectId, ResourceCosts = v
+									.ResourceCosts })
+								blockedIds[v.ObjectId] = true
+							end
 						end
 					end
 				end
@@ -1929,6 +2174,14 @@ function OnCodexPress()
 				for i, id in pairs(currentRoom.HarvestPointChoicesIds) do
 					if IsUseable({Id = id}) then
 						table.insert(rewardsTable, { IsResourceHarvest = true, Name = "Herb", ObjectId = id })
+					end
+				end
+			end
+			-- Add InspectPoints from MapState
+			if MapState.InspectPoints then
+				for id, inspectPoint in pairs(MapState.InspectPoints) do
+					if IsUseable({Id = id}) then
+						table.insert(rewardsTable, { IsResourceHarvest = true, Name = "InspectPoint", ObjectId = id })
 					end
 				end
 			end
@@ -2174,18 +2427,23 @@ end
 
 function wrap_UpdateMetaUpgradeCard(screen, row, column)
 	local components = screen.Components
-	local button = components.MemCostModule
+	local button = components.MemCostModuleBacking
 	-- Add nil check to prevent crash when button doesn't exist (e.g., when clicking "forget")
 	if not button or not button.Id then
 		return
 	end
 
+	-- Set up accessibility speech for the MemCostModuleBacking button
+	button.Screen = screen
+	AttachLua({ Id = button.Id, Table = button })
+
+	-- Keep the original expand text creation (this was working before)
 	if MetaUpgradeCostData.MetaUpgradeLevelData[GetCurrentMetaUpgradeLimitLevel() + 1] then
 		local nextCostData = MetaUpgradeCostData.MetaUpgradeLevelData[GetCurrentMetaUpgradeLimitLevel() + 1]
 		.ResourceCost
 		local nextMetaUpgradeLevel = MetaUpgradeCostData.MetaUpgradeLevelData[GetCurrentMetaUpgradeLimitLevel() + 1]
 
-		local costText = GetDisplayName({ Text = "CannotUseChaosWeaponUpgrade", IgnoreSpecialFormatting = true }) --cheating here, this is just "Requires: {Hammer Icon}" and we just remove the Hammer Icon
+		local costText = GetDisplayName({ Text = "CannotUseChaosWeaponUpgrade", IgnoreSpecialFormatting = true })
 
 		for resource, cost in pairs(nextCostData) do
 			costText = costText .. " " .. cost .. " " .. GetDisplayName({ Text = resource, IgnoreSpecialFormatting = true })
@@ -2217,6 +2475,71 @@ function wrap_UpdateMetaUpgradeCard(screen, row, column)
 			SkipDraw = true,
 			Color = Color.Transparent
 		})
+	end
+
+	-- Add Insights and Forget-me-not text boxes here (so they're ready on first hover)
+	local additionalActions = {}
+
+	-- Check for Insights action
+	if CanUpgradeCards() then
+		local insightsPoints = GetResourceAmount("CardUpgradePoints")
+		local insightsName = GetDisplayName({ Text = "MetaUpgradeMem_UpgradeMode", IgnoreSpecialFormatting = true })
+		local cardUpgradePointsName = GetDisplayName({ Text = "CardUpgradePoints", IgnoreSpecialFormatting = true })
+		table.insert(additionalActions, insightsName .. ", " .. insightsPoints .. " " .. cardUpgradePointsName)
+	end
+
+	-- Check for Forget-me-not action (always available)
+	local forgetMeNotName = GetDisplayName({ Text = "MetaUpgrade_Pin", IgnoreSpecialFormatting = true })
+	table.insert(additionalActions, forgetMeNotName)
+
+	-- Add these additional actions to the button
+	if #additionalActions > 0 then
+		local additionalText = table.concat(additionalActions, ", ")
+		CreateTextBox({
+			Id = button.Id,
+			Text = additionalText,
+			SkipDraw = true,
+			Color = Color.Transparent
+		})
+	end
+end
+
+-- Update button text on mouse over to add Insights and Forget-me-not actions
+function wrap_MouseOverMemCostModule(button)
+	if not button or not button.Id or not button.Screen then
+		return
+	end
+
+	-- Check if we already added the extra text to prevent duplicates
+	if button.AccessibilityTextAdded then
+		return
+	end
+
+	local additionalActions = {}
+
+	-- Check for Insights action
+	if CanUpgradeCards() then
+		local insightsPoints = GetResourceAmount("CardUpgradePoints")
+		local insightsName = GetDisplayName({ Text = "MetaUpgradeMem_UpgradeMode", IgnoreSpecialFormatting = true })
+		local cardUpgradePointsName = GetDisplayName({ Text = "CardUpgradePoints", IgnoreSpecialFormatting = true })
+		table.insert(additionalActions, insightsName .. ", " .. insightsPoints .. " " .. cardUpgradePointsName)
+	end
+
+	-- Check for Forget-me-not action (always available)
+	local forgetMeNotName = GetDisplayName({ Text = "MetaUpgrade_Pin", IgnoreSpecialFormatting = true })
+	table.insert(additionalActions, forgetMeNotName)
+
+	-- Add these additional actions to the button (without destroying existing text)
+	if #additionalActions > 0 then
+		local additionalText = table.concat(additionalActions, ", ")
+		CreateTextBox({
+			Id = button.Id,
+			Text = additionalText,
+			SkipDraw = true,
+			Color = Color.Transparent
+		})
+		-- Mark that we've added the accessibility text
+		button.AccessibilityTextAdded = true
 	end
 end
 
@@ -2480,23 +2803,29 @@ function wrap_MarketScreenDisplayCategory(screen, categoryIndex)
 				" * " .. item.LeftDisplayAmount
 
 				local currentAmount = GameState.Resources[buyResourceData.Name] or 0
-
-				local price = ""
-
-				if category.FlipSides then
-					price = GetDisplayName({ Text = "MarketScreen_SellingHeader" }) ..
-					": +" ..
-					costDisplay.MetaCurrency ..
-					" " .. GetDisplayName({ Text = "MetaCurrency", IgnoreSpecialFormatting = true })
-				else
-					price = GetDisplayName({ Text = "MarketScreen_BuyingHeader", IgnoreSpecialFormatting = true }) ..
-					": " ..
-					costDisplay.MetaCurrency ..
-					" " .. GetDisplayName({ Text = "MetaCurrency", IgnoreSpecialFormatting = true })
+				local bannerText = ""
+				if not item.Priority then
+					bannerText = GetDisplayName({ Text = "Market_LimitedTimeOffer" }) .. ". "
+				elseif item.HasUnmetRequirements then
+					bannerText = GetDisplayName({ Text = "MarketEarlySellWarning" }) .. ". "
 				end
 
+				local price = ""
+				if category.FlipSides then
+					price = GetDisplayName({ Text = "MarketScreen_SellingHeader" }) .. ": +"
+				else
+					price = GetDisplayName({ Text = "MarketScreen_BuyingHeader", IgnoreSpecialFormatting = true }) .. ": "
+				end
 
-				itemNameFormat.Text = displayName ..
+				local priceParts = {}
+				for resource, amount in pairs(costDisplay) do
+					local currencyName = GetDisplayName({ Text = resource, IgnoreSpecialFormatting = true })
+					table.insert(priceParts, amount .. " " .. currencyName)
+				end
+				price = price .. table.concat(priceParts, ", ") -- Combine all parts of the price
+
+				itemNameFormat.Text = bannerText ..
+				displayName ..
 				" " ..
 				GetDisplayName({ Text = "Inventory", IgnoreSpecialFormatting = true }) ..
 				": " .. currentAmount .. ", " .. price
@@ -2793,7 +3122,12 @@ function wrap_CreateStoreButtons(baseFunc, args)
 		end
 		local upgradeData = args.LuaValue
 		local costString = "@GUI\\Icons\\Currency"
-		local costAmount = upgradeData.ResourceCosts["Money"] or 0
+		local costAmount = 0 -- Start by assuming the cost is 0.
+
+		-- Now, only try to access ResourceCosts if it actually exists.
+		if upgradeData.ResourceCosts then
+			costAmount = upgradeData.ResourceCosts["Money"] or 0
+		end
 
 		costString = costAmount .. "/" .. GetResourceAmount( "Money" ) .. " " .. costString
 
@@ -3081,7 +3415,7 @@ function wrap_MouseOverTalentButton(button)
 	-- Add the actual talent description
 	if talent.Name then
 		pcall(function()
-			local descriptionText = GetDisplayName({Text = talent.Name, UseDescription = true})
+			local descriptionText = GetDisplayName({Text = talent.Name, UseDescription = false})
 			if descriptionText and descriptionText ~= "" and descriptionText ~= talentName then
 				CreateTextBox({
 					Id = button.Id,
@@ -3149,25 +3483,43 @@ function override_ExorcismSequence( source, exorcismData, args, user )
 
 	for i, move in ipairs( exorcismData.MoveSequence ) do
 		rom.tolk.silence()
-		local extraTime = config.ExorcismTime
-		if move.Left and move.Right then
-			if config.ExorcismTime <= 2.4 then
-				extraTime = 2.4
-			end
+
+		local consecutiveMistakes = 0
+		local reactionTime
+		if config.Exorcism.Time == 0 then
+			-- If Time is 0, go with the game's default.
+			local gameFailCount = exorcismData.ConsecutiveCheckFails or 14
+			reactionTime = gameFailCount * (exorcismData.InputCheckInterval or 0.1)
+		else
+			reactionTime = config.Exorcism.Time or 2.0
 		end
-		move.EndTime = _worldTime + extraTime
+		move.EndTime = _worldTime + reactionTime
+
 		ExorcismNextMovePresentation( source, args, user, move )
-		if config.SpeakExoricsm then
+		if config.Exorcism.Speak then
 			local outputText = ""
-			if move.Left then
-				outputText = outputText .. GetDisplayName({Text = "ExorcismLeft"})
+			if move.Left and move.Right then
+				outputText = config.Exorcism.CueBoth
+			elseif move.Left then
+				outputText = config.Exorcism.CueLeft
+			elseif move.Right then
+				outputText = config.Exorcism.CueRight
 			end
-			if move.Right then
-				outputText = outputText .. GetDisplayName({Text = "ExorcismRight"})
+
+			if outputText == nil or outputText == "" then
+				-- Use shortened button prompts for faster reading
+				if move.Left and move.Right then
+					outputText = "both"
+				elseif move.Left then
+					outputText = "left"
+				elseif move.Right then
+					outputText = "right"
+				end
 			end
 
 			rom.tolk.output(outputText)
 		end
+
 		local succeedCheck = false
 		while _worldTime < move.EndTime do
 			wait( exorcismData.InputCheckInterval or 0.1 )
@@ -3189,17 +3541,15 @@ function override_ExorcismSequence( source, exorcismData, args, user )
 				if prevAnim == "Melinoe_Tablet_Both_Start" then
 					targetAnim = "Melinoe_Tablet_Both_End"
 				elseif prevAnim == "Melinoe_Tablet_Left_Start" then
-					targetAnim = "Melinoe_Tablet_Left_End"					
+					targetAnim = "Melinoe_Tablet_Left_End"
 				elseif prevAnim == "Melinoe_Tablet_Right_Start" then
 					targetAnim = "Melinoe_Tablet_Right_End"
 				end
 			end
-
 			local nextAnim = nil
 			if targetAnim ~= nil and targetAnim ~= prevAnim then
 				nextAnim = targetAnim
 			end
-
 			if nextAnim ~= nil then
 				SetAnimation({ Name = nextAnim, DestinationId = user.ObjectId })
 				prevAnim = nextAnim
@@ -3208,31 +3558,38 @@ function override_ExorcismSequence( source, exorcismData, args, user )
 			local isLeftCorrect = move.Left == isLeftDown
 			local isRightCorrect = move.Right == isRightDown
 
-
-
 			ExorcismInputCheckPresentation( source, args, user, move, isLeftCorrect, isRightCorrect, isLeftDown, isRightDown, consecutiveCheckFails, exorcismData )
 
-			if isLeftCorrect and isRightCorrect and succeedCheck == false then
+			if isLeftCorrect and isRightCorrect then
 				consecutiveCheckFails = 0
-				succeedCheck = true
-				move.EndTime = _worldTime + move.Duration or 0.4
+				consecutiveMistakes = 0
+				if not succeedCheck then
+					succeedCheck = true
+					move.EndTime = _worldTime + (move.Duration or 0.4)
+				end
 			else
-				-- move.EndTime = move.EndTime + (exorcismData.InputCheckInterval or 0.1)
-				-- totalCheckFails = totalCheckFails + 1
-				-- consecutiveCheckFails = consecutiveCheckFails + 1
-				-- DebugPrint({ Text = "Exorcism consecutiveCheckFails = "..consecutiveCheckFails })
-				-- if totalCheckFails >= (exorcismData.TotalCheckFails or 99) or consecutiveCheckFails >= (exorcismData.ConsecutiveCheckFails or 14) then
-				-- 	return false
-				-- end
+				succeedCheck = false
+				consecutiveCheckFails = consecutiveCheckFails + 1
+
+				if config.Exorcism.Failure == true then
+					local isPressingAnyButton = IsControlDown({ Name = "ExorcismLeft" }) or IsControlDown({ Name = "ExorcismRight" })
+
+					if isPressingAnyButton then
+						consecutiveMistakes = consecutiveMistakes + 1
+						totalCheckFails = totalCheckFails + 1
+						if totalCheckFails >= (exorcismData.TotalCheckFails or 99) or consecutiveMistakes >= (exorcismData.ConsecutiveCheckFails or 14) then
+							thread( DoRumble, { { LeftTriggerStrengthFraction = 0.0, RightTriggerStrengthFraction = 0.0, }, } )
+							return false
+						end
+					end
+				end
 			end
 		end
-		if succeedCheck == false then
+
+		if not succeedCheck then
+			thread( DoRumble, { { LeftTriggerStrengthFraction = 0.0, RightTriggerStrengthFraction = 0.0, }, } )
 			return false
 		end
-		-- if exorcismData.RequireCorrectAtMoveSwitch and consecutiveCheckFails > 0 then
-		-- 	return false
-		-- end
-
 		local key = "MovePipId"..move.Index
 		SetAnimation({ Name = "ExorcismPip_Full", DestinationId = source[key] })
 		if move.Left and move.Right then
@@ -3243,11 +3600,8 @@ function override_ExorcismSequence( source, exorcismData, args, user )
 		elseif move.Right then
 			CreateAnimation({ Name = "ExorcismSuccessHandRight", DestinationId = CurrentRun.Hero.ObjectId })
 		end
-		-- DebugPrint({ Text = "_AFTAR_ Exorcism Move "..i.." (Left = "..tostring(move.Left)..", Right = "..tostring(move.Right)..")" })
-		
 	end
 
-	DebugPrint({ Text = "totalCheckFails = "..totalCheckFails })
 	return true
 end
 function sjson_Chronos(data)
@@ -3270,20 +3624,52 @@ function wrap_Damage(baseFunc, victim, triggerArgs)
 				return
 			end
 		end
+
+		-- Check for lava-based trap damage (projectiles only, not enemy attacks)
+		local lavaProjectiles = {
+			"LavaSplash",
+			"LavaTileWeapon",
+			"LavaTileTriangle01Weapon",
+			"LavaTileTriangle02Weapon",
+			"LavaPuddleLarge"
+		}
+
+		-- Check if damage source is a lava projectile
+		if triggerArgs.SourceProjectile then
+			for _, lavaName in ipairs(lavaProjectiles) do
+				if triggerArgs.SourceProjectile == lavaName then
+					return
+				end
+			end
+		end
+
+		-- Check if damage source weapon is lava-based
+		if triggerArgs.SourceWeapon then
+			for _, lavaName in ipairs(lavaProjectiles) do
+				if triggerArgs.SourceWeapon == lavaName then
+					return
+				end
+			end
+		end
 	end
 
 	-- Call the original function for non-trap damage
 	local result = baseFunc(victim, triggerArgs)
 
-	-- Check and announce HP for player
+	-- Check and announce HP for player (HP announcements enabled)
 	if victim and game.CurrentRun and game.CurrentRun.Hero and victim.ObjectId == game.CurrentRun.Hero.ObjectId then
+		print("Player took damage, calling CheckAndPlayHPSound")
 		CheckAndPlayHPSound()
 	end
 
-	-- Check and announce HP for bosses and mini-bosses
+	-- Check and announce HP for bosses and mini-bosses (HP announcements enabled)
 	if victim and (victim.IsBoss or victim.IsElite) then
+		print("Boss/Elite took damage, calling CheckBossHealth")
 		CheckBossHealth(victim)
 	end
 
 	return result
 end
+
+
+
