@@ -795,7 +795,9 @@ end
 function rom.game.BlindAccessAssesDoorMenuSoundSet(screen, button)
 	PlaySound({ Name = "/SFX/Menu Sounds/ContractorItemPurchase" })
 	rom.game.BlindAccessCloseAssesDoorShowerScreen(screen, button)
-	doDefaultSound(button.door)
+	if button.door then
+		doDefaultSound(button.door)
+	end
 end
 
 function doDefaultSound(door)
@@ -825,6 +827,9 @@ end
 
 function getDoorSound(door, devotionSlot)
 	local room = door.Room
+	if not room then
+		return "Unknown"
+	end
 	if GetMapName():find("O_") == 1 then
 		return "MetaUpgrade_UpgradesAvailable_Close"
 	elseif door.Room.Name == "FinalBossExitDoor" or door.Room.Name == "E_Intro" then
