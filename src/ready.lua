@@ -15,6 +15,8 @@ Version: 29
 Intended as an accessibility mod. Places all doors in a menu, allowing the player to select a door and be teleported to it.
 --]]
 
+mod = modutil.mod.Mod.Register(_PLUGIN.guid)
+
 local function setupData()
 	ModUtil.Table.Merge(ScreenData, {
 		BlindAccessibilityRewardMenu = {
@@ -177,24 +179,22 @@ modutil.mod.Path.Context.Wrap("CreateSpellButtons", function(screen)
 	end)
 end)
 
-modutil.mod.Path.Wrap("CreateTalentTreeIcons", function(baseFunc, screen, args)
-	local ret = baseFunc(screen, args)
-	wrap_CreateTalentTreeIcons(screen, args)
-	return ret
+modutil.mod.Path.Override("OpenTalentScreen", function(args, spellItem)
+	override_OpenTalentScreen(args, spellItem)
 end)
 
-modutil.mod.Path.Wrap("UpdateTalentButtons", function(baseFunc, screen, skipUsableCheck )
-	local ret = baseFunc(screen, skipUsableCheck)
-	wrap_UpdateTalentButtons(screen, skipUsableCheck)
-	return ret
-end)
+-- modutil.mod.Path.Wrap("UpdateTalentButtons", function(baseFunc, screen, skipUsableCheck )
+-- 	local ret = baseFunc(screen, skipUsableCheck)
+-- 	wrap_UpdateTalentButtons(screen, skipUsableCheck)
+-- 	return ret
+-- end)
 
-modutil.mod.Path.Context.Wrap("HighlightTalentButton", function( button )
-	modutil.mod.Path.Wrap("ModifyTextBox", function(baseFunc, args)
-		-- Allow the base ModifyTextBox to work so TOLK can read it
-		return baseFunc(args)
-	end)
-end)
+-- modutil.mod.Path.Context.Wrap("HighlightTalentButton", function( button )
+-- 	modutil.mod.Path.Wrap("ModifyTextBox", function(baseFunc, args)
+-- 		-- Allow the base ModifyTextBox to work so TOLK can read it
+-- 		return baseFunc(args)
+-- 	end)
+-- end)
 
 modutil.mod.Path.Override("HecateHideAndSeekExit", function(source, args)
 	override_HecateHideAndSeekExit(source, args)

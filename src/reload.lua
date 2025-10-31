@@ -1398,13 +1398,13 @@ function OpenRewardMenu(rewards)
 
 	CreateRewardButtons(screen, rewards)
 	screen.KeepOpen = true
-	-- thread(HandleWASDInput, screen)
 	HandleScreenInput(screen)
 	-- SetConfigOption({ Name = "ExclusiveInteractGroup", Value = "Menu_UI" })
 end
 
 function CreateRewardButtons(screen, rewards)
-	local xPos = 960
+	local index = 0
+	local startX = 250
 	local startY = 235
 	local yIncrement = 55
 	local curY = startY
@@ -1552,6 +1552,17 @@ function CreateRewardButtons(screen, rewards)
 		curY = startY
 	end
 	for k, reward in pairs(rewards) do
+
+		local rowOffset = 55
+		local columnOffset = 450
+		local boonsPerRow = 4
+		local rowsPerPage = 99
+		local rowIndex = math.floor(index / boonsPerRow)
+		local pageIndex = math.floor(rowIndex / rowsPerPage)
+		local offsetX = startX + columnOffset * (index % boonsPerRow)
+		local offsetY = startY + rowOffset * (rowIndex % rowsPerPage)
+		index = index + 1
+
 		local displayText = reward.Name
 		local buttonKey = "RewardMenuButton" .. k .. displayText
 		components[buttonKey] =
@@ -1559,11 +1570,11 @@ function CreateRewardButtons(screen, rewards)
 				Name = "ButtonDefault",
 				Group = "Menu_UI_Rewards",
 				Scale = 0.8,
-				X = xPos,
-				Y = curY
+				X = offsetX,
+				Y = offsetY
 			})
 
-		SetScaleX({ Id = components[buttonKey].Id, Fraction = 4 })
+		-- SetScaleX({ Id = components[buttonKey].Id, Fraction = 4 })
 		AttachLua({ Id = components[buttonKey].Id, Table = components[buttonKey] })
 		-- components[buttonKey].OnMouseOverFunctionName = "MouseOver"
 		components[buttonKey].index = k
@@ -1589,8 +1600,8 @@ function CreateRewardButtons(screen, rewards)
 		CreateTextBox({
 			Id = components[buttonKey].Id,
 			Text = displayText,
-			FontSize = 24,
-			OffsetX = -200,
+			FontSize = 16,
+			OffsetX = 0,
 			OffsetY = 0,
 			Color = Color.White,
 			Font = "P22UndergroundSCMedium",
@@ -1598,7 +1609,7 @@ function CreateRewardButtons(screen, rewards)
 			ShadowBlur = 0,
 			ShadowColor = { 0, 0, 0, 1 },
 			ShadowOffset = { 0, 2 },
-			Justification = "Left",
+			Justification = "Center",
 		})
 
 
@@ -1606,7 +1617,7 @@ function CreateRewardButtons(screen, rewards)
 			CreateTextBox({
 				Id = components[buttonKey].Id,
 				Text = reward.ResourceCosts.Money .. " " .. GetDisplayName({ Text = "Money", IgnoreSpecialFormatting = true }),
-				FontSize = 24,
+				FontSize = 16,
 				OffsetX = -520,
 				OffsetY = 30,
 				Color = Color.White,
@@ -1615,14 +1626,14 @@ function CreateRewardButtons(screen, rewards)
 				ShadowBlur = 0,
 				ShadowColor = { 0, 0, 0, 1 },
 				ShadowOffset = { 0, 2 },
-				Justification = "Left",
+				Justification = "Center",
 			})
 		end
 
 		if isFirstButton then
-			TeleportCursor({ OffsetX = xPos + 300, OffsetY = curY })
+			TeleportCursor({ OffsetX = offsetX, OffsetY = offsetY })
 			wait(0.2)
-			TeleportCursor({ OffsetX = xPos, OffsetY = curY })
+			TeleportCursor({ OffsetX = offsetX, OffsetY = offsetY })
 			isFirstButton = false
 		end
 		curY = curY + yIncrement
@@ -2231,6 +2242,7 @@ function OnCodexPress()
 end
 
 function OnAdvancedTooltipPress()
+
 	if string.find(GetMapName(), "Flashback_") ~= nil and IsInputAllowed({}) then
 		rewardsTable = ProcessTable()--ModUtil.Table.Merge(LootObjects, MapState.RoomRequiredObjects))
 		OpenRewardMenu(rewardsTable)
@@ -2245,6 +2257,23 @@ function OnAdvancedTooltipPress()
 	local rewardsTable = {}
 	if CurrentRun ~= nil and CurrentRun.Hero ~= nil and CurrentRun.Hero.IsDead and not IsScreenOpen("InventoryScreen") and not IsScreenOpen("BlindAccesibilityInventoryMenu") then
 		rewardsTable = ProcessTable(ModUtil.Table.Merge(LootObjects, MapState.RoomRequiredObjects))
+		local curMap = GetMapName()
+		if string.find(curMap, "Hub_Main") then
+			if GameState.GardenPlots then
+				local index = 1
+				for k, v in pairs(GameState.GardenPlots) do
+					local name = v.Name .. index
+					index = index + 1
+					table.insert(rewardsTable, { Name = name, ObjectId = k })
+				end
+			end
+			if GameState.WorldUpgradesAdded.WorldUpgradeMusicPlayer then
+				table.insert(rewardsTable, { Name = "MusicPlayerScreen", ObjectId = 738510 })
+			end
+			if GameState.WorldUpgradesAdded.WorldUpgradeRunHistory then
+				table.insert(rewardsTable, { Name = "RunHistoryScreen", ObjectId = 589466 })
+			end
+		end
 		if TableLength(rewardsTable) > 0 then
 			if not IsEmpty(ActiveScreens.TraitTrayScreen) then
 				thread(TraitTrayScreenClose, ActiveScreens.TraitTrayScreen)
@@ -3188,6 +3217,315 @@ function wrap_CreateSpellButtons(baseFunc, args)
 	end
 
 	return baseFunc(args)
+end
+
+function override_OpenTalentScreen(args, spellItem)
+	args = args or {}
+	local screenName = "BlindTalentScreen"
+	if not args.ReadOnly and spellItem and spellItem.AddTalentPoints then
+		local talentPoints = ( spellItem.AddTalentPoints - 1 ) or 0
+		CurrentRun.NumTalentPoints = CurrentRun.NumTalentPoints + talentPoints
+	end
+	CurrentRun.Hero.UntargetableFlags[screenName] = true
+	SetPlayerInvulnerable( screenName )
+	AddPlayerImmuneToForce( screenName )
+
+	-- Not allowed to quit after seeing otherwise hidden choices
+	InvalidateCheckpoint()
+	HideCombatUI( screenName )
+	
+	if spellItem ~= nil then
+		AddTimerBlock( CurrentRun, "OpenTalentScreen" )
+		LootPickupPresentation( spellItem )
+		RecordConsumableItem( spellItem )
+		MapState.RoomRequiredObjects[spellItem.ObjectId] = nil
+		SetAlpha({ Id = spellItem.ObjectId, Fraction = 0, Duration = 0 })
+		RemoveScreenEdgeIndicator( spellItem )
+		RemoveTimerBlock( CurrentRun, "OpenTalentScreen" )
+	end
+	
+	local screen = DeepCopyTable( ScreenData[screenName] )
+	screen.ReadOnly = args.ReadOnly
+	screen.StartingTalentPoints = CurrentRun.NumTalentPoints
+	if screen.ReadOnly then
+		screen.BlockPause = true
+	end
+	local components = screen.Components
+
+	AltAspectRatioFramesShow()
+	
+	OnScreenOpened( screen )
+	LoadVoiceBanks( { Name = "Selene" }, nil, true )
+
+	local traitData = nil
+	if spellItem ~= nil and spellItem.RotateAfterUse and CurrentRun.Hero.SlottedSpell then
+		MapState.GeneratedSpells = MapState.GeneratedSpells or {}
+		RemoveTrait( CurrentRun.Hero, CurrentRun.Hero.SlottedSpell.Name )
+		local eligibleSpells = {}
+		for spellName, spellData in pairs( SpellData ) do
+			if not spellData.Skip and not Contains( MapState.GeneratedSpells, spellName ) then
+				table.insert( eligibleSpells, spellData )
+			end
+		end
+		if IsEmpty( eligibleSpells ) then
+			MapState.GeneratedSpells = {}
+			eligibleSpells = { ChooseSpell( CurrentRun.CurrentRoom, args ) }
+		end
+		CurrentRun.Hero.SlottedSpell = DeepCopyTable( eligibleSpells[1] )
+		CurrentRun.Hero.SlottedSpell.Talents = CreateTalentTree( SpellData[CurrentRun.Hero.SlottedSpell.Name] )	
+		traitData = AddTraitToHero({ TraitName = CurrentRun.Hero.SlottedSpell.TraitName })
+		table.insert( MapState.GeneratedSpells, CurrentRun.Hero.SlottedSpell.Name )
+	end
+
+	if not CurrentRun.Hero.SlottedSpell then	
+		CurrentRun.Hero.SlottedSpell = ChooseSpell( CurrentRun.CurrentRoom, args )
+		CurrentRun.Hero.SlottedSpell.Talents = CreateTalentTree( SpellData[CurrentRun.Hero.SlottedSpell.Name] )	
+		traitData = AddTraitToHero({ TraitName = CurrentRun.Hero.SlottedSpell.TraitName })
+
+	end
+	screen.QueuedTalents = {}
+	screen.SelectedTalent = nil
+	screen.Source = spellItem
+	CreateScreenFromData( screen, screen.ComponentData )
+
+	if not traitData then
+		traitData = GetHeroTrait( CurrentRun.Hero.SlottedSpell.TraitName )
+	end
+
+	-- Hex
+	CreateTextBox({
+		Id = components.SpellBacking.Id,
+		Text = traitData.Name,
+		FontSize = 16,
+		OffsetX = 0,
+		OffsetY = 0,
+		Color = Color.White,
+		Font = "P22UndergroundSCMedium",
+		Group = "Combat_Menu",
+		Justification = "Center",
+	})
+	CreateTextBox({
+		Id = components.SpellBacking.Id,
+		Text = traitData.Name,
+		UseDescription = true,
+		FontSize = 16,
+		OffsetX = 0,
+		OffsetY = 10,
+		Color = Color.White,
+		Font = "P22UndergroundSCMedium",
+		Group = "Combat_Menu",
+		Justification = "Center",
+		LuaKey = "TooltipData",
+		LuaValue = traitData
+	})
+
+	--Path of stars points
+	CreateTextBox({
+		Id = components.SpellBacking.Id,
+		Text = ": Available points : " .. (CurrentRun.NumTalentPoints + 1),
+		FontSize = 16,
+		OffsetX = 0,
+		OffsetY = 0,
+		Color = Color.White,
+		Font = "P22UndergroundSCMedium",
+		Group = "Combat_Menu",
+		Justification = "Center",
+	})
+
+	mod.CreateTalentTreeIcons( screen, { ObstacleName = "ButtonTalent", OnPressedFunctionName = "OnTalentPressed"} )
+	-- UpdateTalentButtons( screen )
+	if screen.ReadOnly or screen.AllInvested then
+		UseableOn({ Id = components.CloseButton.Id })
+		SetAlpha({ Id = components.CloseButton.Id, Fraction = 1.0, Duration = 0.2 })
+		screen.BlockPause = true
+	else
+		UseableOff({ Id = components.CloseButton.Id })
+	end
+
+	if spellItem ~= nil and spellItem.RespawnAfterUse then
+		local newSpellItemId = SpawnObstacle({ Name = "TalentDrop", DestinationId = spellItem.ObjectId })
+		local newSpellItem = CreateConsumableItem( newSpellItemId, "TalentDrop", 0 )
+		newSpellItem.RespawnAfterUse = spellItem.RespawnAfterUse
+		newSpellItem.RotateAfterUse = spellItem.RotateAfterUse
+		spellItem.RespawnAfterUse = false
+	end
+
+	if HeroHasTrait( "SpellTalentKeepsake" ) then
+		local trait = GetHeroTrait("SpellTalentKeepsake")
+		ReduceTraitUses( trait, {Force = true })
+		trait.CustomTrayText = trait.ZeroBonusTrayText
+	end
+
+	if CurrentRun.Hero.SlottedSpell.HasDuoTalent and CurrentRun.ScreenViewRecord[screenName] == 1 then
+		thread(FirstTimeDuoTalentPresentation, components.SpellBacking.Id )
+	end
+	-- Short delay to let animations finish and prevent accidental input
+	wait(0.5)
+	SetAlpha({ Id = components.TalentPointText.Id, Fraction = 1.0, Duration = 0.2 })
+	screen.KeepOpen = true
+	HandleScreenInput( screen )
+	TeleportCursor({ OffsetX = components.SpellBacking.X + 300, OffsetY = components.SpellBacking.Y })
+	wait(0.2)
+	TeleportCursor({ OffsetX = components.SpellBacking.X, OffsetY = components.SpellBacking.Y })
+end
+
+function mod.CreateTalentTreeIcons(screen, args)
+	args = args or {}
+	local offsetX = args.OffsetX or screen.DefaultStartX + ScreenCenterNativeOffsetX
+	local offsetY = args.OffsetY or screen.DefaultStartY + ScreenCenterNativeOffsetY
+	local xSpacer = args.XSpacer or screen.DefaultTalentXSpacer
+	local ySpacer = args.YSpacer or screen.DefaultTalentYSpacer
+	local scale = args.Scale or screen.DefaultTalentScale
+	local screenObstacle = args.ObstacleName or "BlankObstacle"
+	local components = screen.Components
+	local spellTalents = nil
+	if CurrentRun.Hero.SlottedSpell then
+		spellTalents = CurrentRun.Hero.SlottedSpell.Talents
+	end
+	if not spellTalents then
+		spellTalents = screen.TalentData
+	end
+	if spellTalents.OffsetY then
+		offsetY = offsetY + spellTalents.OffsetY
+	end
+	components.TalentIds = {}
+	components.TalentFrameIds = {}
+	components.TalentIdsDictionary = {}
+	components.TalentFramesIdsDictionary = {}
+	components.LinkObjects = {}
+	for i, column in ipairs( spellTalents ) do
+		for s, talent in pairs(spellTalents[i]) do
+			local talentOffsetX = (talent.GridOffsetX or 0) * xSpacer
+			local talentOffsetY = (talent.GridOffsetY or 0) * ySpacer
+
+			local interactProperties = nil
+			if screenObstacle ~= "BlankObstacle" then
+				interactProperties =
+				{
+					TooltipOffsetX = ScreenCenterNativeOffsetX + screen.TooltipOffsetXStart - (i * xSpacer + offsetX + talentOffsetX),
+					TooltipOffsetY = ScreenCenterNativeOffsetY + screen.TooltipOffsetYStart - (s * ySpacer + offsetY + talentOffsetY),
+				}
+			end
+			local talentObject = CreateScreenComponent({
+					-- Name = screenObstacle, X = i * xSpacer + offsetX + talentOffsetX, Y = s * ySpacer + offsetY + talentOffsetY,
+					Name = screenObstacle, X = i * xSpacer + offsetX + talentOffsetX, Y = s * ySpacer + offsetY + talentOffsetY,
+					Group = "Combat_Menu_Overlay",
+					Scale = scale,
+					InteractProperties = interactProperties,
+					Alpha = 0.01,
+					AlphaTarget = 1.0,
+					AlphaTargetDuration = 0.6,
+			})
+
+			talentObject.Screen = screen
+			-- talentObject.OnMouseOverFunctionName = "MouseOverTalentButton"
+			-- talentObject.OnMouseOffFunctionName = "MouseOffTalentButton"
+			talentObject.LinkObjects = {}
+			if screenObstacle ~= "BlankObstacle" then
+				CreateTextBox({ Id = talentObject.Id,
+					OffsetX = 0, OffsetY = 0,
+					Font = "P22UndergroundSCHeavy",
+					Justification = "LEFT",
+					Color = Color.Transparent,
+					UseDescription = true,
+				})
+			end
+			if not screen.ReadOnly then
+				talentObject.OnPressedFunctionName = args.OnPressedFunctionName
+			end
+			talentObject.Data = talent
+			talentObject.TalentColumn = i
+			talentObject.TalentRow = s
+			local newTraitData =  GetProcessedTraitData({ Unit = CurrentRun.Hero, TraitName = talent.Name, Rarity = talent.Rarity, ForBoonInfo = true })
+			SetTraitTextData( newTraitData )
+			CreateTextBox({
+				Id = talentObject.Id,
+				Text = talent.Name,
+				FontSize = 16,
+				OffsetX = 0,
+				OffsetY = 0,
+				Color = Color.White,
+				Font = "P22UndergroundSCMedium",
+				Group = "Combat_Menu",
+				Justification = "Center",
+			})
+			CreateTextBox({
+				Id = talentObject.Id,
+				Text = talent.Name,
+				UseDescription = true,
+				FontSize = 16,
+				OffsetX = 0,
+				OffsetY = 10,
+				Color = Color.White,
+				Font = "P22UndergroundSCMedium",
+				Group = "Combat_Menu",
+				Justification = "Center",
+				LuaKey = "TooltipData",
+				LuaValue = newTraitData
+			})
+			table.insert( components.TalentIds, talentObject.Id )
+			components.TalentIdsDictionary[i .. "_" .. s] = talentObject.Id
+			components["TalentObject"..i .. "_" .. s] = talentObject
+		end
+	end
+	for i, column in ipairs( spellTalents ) do
+		for s, talent in pairs( spellTalents[i] ) do
+			local talentObject = components["TalentObject"..i.."_"..s]
+			talentObject.LinkObjects = {}
+			if talent.LinkTo then
+				CreateTextBox({
+					Id = talentObject.Id,
+					Text = ": Links to :",
+					FontSize = 16,
+					OffsetX = 0,
+					OffsetY = 0,
+					Color = Color.White,
+					Font = "P22UndergroundSCMedium",
+					Group = "Combat_Menu",
+					Justification = "Center",
+				})
+				for q, linkToIndex in pairs( talent.LinkTo ) do
+					CreateTextBox({
+						Id = talentObject.Id,
+						Text = components["TalentObject"..(i+1).."_"..linkToIndex].Data.Name,
+						FontSize = 16,
+						OffsetX = 0,
+						OffsetY = 0,
+						Color = Color.White,
+						Font = "P22UndergroundSCMedium",
+						Group = "Combat_Menu",
+						Justification = "Center",
+					})
+				end
+			end
+			if talent.LinkFrom then
+				CreateTextBox({
+					Id = talentObject.Id,
+					Text = ": Links from :",
+					FontSize = 16,
+					OffsetX = 0,
+					OffsetY = 0,
+					Color = Color.White,
+					Font = "P22UndergroundSCMedium",
+					Group = "Combat_Menu",
+					Justification = "Center",
+				})
+				for q, linkToIndex in pairs( talent.LinkFrom ) do
+					CreateTextBox({
+						Id = talentObject.Id,
+						Text = components["TalentObject"..(i-1).."_"..linkToIndex].Data.Name,
+						FontSize = 16,
+						OffsetX = 0,
+						OffsetY = 0,
+						Color = Color.White,
+						Font = "P22UndergroundSCMedium",
+						Group = "Combat_Menu",
+						Justification = "Center",
+					})
+				end
+			end
+		end
+	end
 end
 
 function wrap_CreateTalentTreeIcons(screen, args)
