@@ -118,6 +118,14 @@ function mod.setupScreenData()
                     Color = Color.Black,
                 },
 
+                BackgroundImage =
+                {
+                    AnimationName = "TalentScreenIn",
+                    GroupName = "Combat_Menu_Backing",
+                    X = ScreenCenterX,
+                    Y = ScreenCenterY,
+                },
+
                 Background =
                 {
                     GroupName = "Combat_Menu",

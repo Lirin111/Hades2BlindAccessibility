@@ -3333,7 +3333,7 @@ function override_OpenTalentScreen(args, spellItem)
 	})
 
 	mod.CreateTalentTreeIcons( screen, { ObstacleName = "ButtonTalent", OnPressedFunctionName = "OnTalentPressed"} )
-	-- UpdateTalentButtons( screen )
+	wrap_UpdateTalentButtons( screen )
 	if screen.ReadOnly or screen.AllInvested then
 		UseableOn({ Id = components.CloseButton.Id })
 		SetAlpha({ Id = components.CloseButton.Id, Fraction = 1.0, Duration = 0.2 })
@@ -3436,6 +3436,7 @@ function mod.CreateTalentTreeIcons(screen, args)
 			talentObject.Data = talent
 			talentObject.TalentColumn = i
 			talentObject.TalentRow = s
+			talentObject.Valid = false  -- Initialize as false, will be set by wrap_UpdateTalentButtons
 			local newTraitData =  GetProcessedTraitData({ Unit = CurrentRun.Hero, TraitName = talent.Name, Rarity = talent.Rarity, ForBoonInfo = true })
 			SetTraitTextData( newTraitData )
 			CreateTextBox({
@@ -3487,7 +3488,7 @@ function mod.CreateTalentTreeIcons(screen, args)
 				for q, linkToIndex in pairs( talent.LinkTo ) do
 					CreateTextBox({
 						Id = talentObject.Id,
-						Text = components["TalentObject"..(i+1).."_"..linkToIndex].Data.Name,
+						Text = (components["TalentObject"..(i+1).."_"..linkToIndex] and components["TalentObject"..(i+1).."_"..linkToIndex].Data and components["TalentObject"..(i+1).."_"..linkToIndex].Data.Name) or "Unknown",
 						FontSize = 16,
 						OffsetX = 0,
 						OffsetY = 0,
@@ -3513,7 +3514,7 @@ function mod.CreateTalentTreeIcons(screen, args)
 				for q, linkToIndex in pairs( talent.LinkFrom ) do
 					CreateTextBox({
 						Id = talentObject.Id,
-						Text = components["TalentObject"..(i-1).."_"..linkToIndex].Data.Name,
+						Text = (components["TalentObject"..(i-1).."_"..linkToIndex] and components["TalentObject"..(i-1).."_"..linkToIndex].Data and components["TalentObject"..(i-1).."_"..linkToIndex].Data.Name) or "Unknown",
 						FontSize = 16,
 						OffsetX = 0,
 						OffsetY = 0,
@@ -3525,6 +3526,147 @@ function mod.CreateTalentTreeIcons(screen, args)
 				end
 			end
 		end
+	end
+end
+
+-- OnTalentPressed function for BlindTalentScreen button handling
+function OnTalentPressed(screen, button)
+	local components = screen.Components
+	local selectedTalent = CurrentRun.Hero.SlottedSpell.Talents[button.TalentColumn][button.TalentRow]
+	if selectedTalent.Invested or selectedTalent.QueuedInvested then
+		PlaySound({ Name = "/Leftovers/SFX/OutOfAmmo" })
+	elseif button.Valid then
+		screen.SelectedTalent = selectedTalent
+		PlaySound({ Name = "/SFX/Menu Sounds/VictoryScreenBoonPin" })
+		TryCloseTalentTree(screen, button)
+	else
+		PlaySound({ Name = "/Leftovers/SFX/OutOfAmmo" })
+	end
+end
+
+-- LeaveTalentTree function for BlindTalentScreen exit handling
+function LeaveTalentTree(screen, button)
+	local components = screen.Components
+	if not screen.ReadOnly and not screen.AllInvested then
+		return
+	end
+	TryCloseTalentTree(screen, button)
+end
+
+-- TryCloseTalentTree function for BlindTalentScreen close handling
+function TryCloseTalentTree(screen, button)
+	local components = screen.Components
+
+	if not screen.AllInvested and not screen.ReadOnly then
+		IncrementTableValue(CurrentRun, "InvestedTalentPoints")
+		if not screen.SelectedTalent then
+			return
+		else
+			table.insert(screen.QueuedTalents, screen.SelectedTalent)
+			screen.SelectedTalent.QueuedInvested = true
+		end
+
+		if CurrentRun.NumTalentPoints and CurrentRun.NumTalentPoints > 0 then
+			CurrentRun.NumTalentPoints = CurrentRun.NumTalentPoints - 1
+			RecreateTalentTree(screen, button)
+			UpdateAdditionalTalentPointButton(screen)
+			if not screen.AllInvested then
+				return
+			end
+		end
+	end
+
+	screen.AddedTraitNames = {}
+	for _, talentInfo in pairs(screen.QueuedTalents) do
+		talentInfo.Invested = true
+
+		local baseTraitData = TraitData[talentInfo.Name]
+		if baseTraitData.IsDuoBoon then
+			CurrentRun.Hero.SlottedSpell.ObtainedDuoTalent = true
+		end
+		screen.AddedTraitNames[talentInfo.Name] = true
+		if HeroHasTrait(talentInfo.Name) then
+			local traitData = GetHeroTrait(talentInfo.Name)
+			IncreaseTraitLevel(traitData)
+			if baseTraitData.AcquireFunctionName then
+				thread(CallFunctionName, baseTraitData.AcquireFunctionName, baseTraitData.AcquireFunctionArgs, traitData)
+			end
+		else
+			AddTraitToHero({ TraitName = talentInfo.Name, Rarity = talentInfo.Rarity, FromLoot = true })
+		end
+	end
+
+	SetConfigOption({ Name = "FreeFormSelectWrapY", Value = false })
+	SetConfigOption({ Name = "ExclusiveInteractGroup", Value = nil })
+	UpdateTalentPointInvestedCache()
+	wait(0.3)
+
+	OnScreenCloseStarted(screen)
+
+	if screen.Source and screen.Source.DestroySourceOnClose then
+		Destroy({ Id = screen.Source.ObjectId })
+	end
+
+	local ids = GetAllIds(screen.Components)
+	ConcatTableValues(ids, components.TalentIds)
+	ConcatTableValues(ids, components.TalentFrameIds)
+	ConcatTableValues(ids, components.LinkObjects)
+	for i, column in ipairs(CurrentRun.Hero.SlottedSpell.Talents) do
+		for s, talent in pairs(column) do
+			local talentObject = components["TalentObject"..i.."_"..s]
+			if talentObject ~= nil and talentObject.BadgeId ~= nil then
+				table.insert(ids, talentObject.BadgeId)
+			end
+		end
+	end
+	CloseScreen(ids, nil, screen, { CloseDestroyWait = 0.5 })
+	AltAspectRatioFramesHide()
+	if not screen.ReadOnly then
+		if HeroHasTrait("SpellTalentKeepsake") then
+			local traitData = GetHeroTrait("SpellTalentKeepsake")
+			traitData.CustomTrayText = traitData.ZeroBonusTrayText
+			ReduceTraitUses(traitData, {Force = true})
+		end
+	end
+	if screen.Source and CurrentRun.AllSpellInvestedCache then
+		screen.Source.CanDuplicate = false
+	end
+	CurrentRun.Hero.UntargetableFlags[screen.Name] = nil
+	SetPlayerVulnerable(screen.Name)
+	RemovePlayerImmuneToForce(screen.Name)
+
+	OnScreenCloseFinished(screen)
+	ShowCombatUI(screen.Name)
+	if screen.Source and screen.Source.DoSpellInteractEndOnClose then
+		SpellDropInteractPresentationEnd()
+	end
+	if screen.ReadOnly then
+		ShowTraitTrayScreen({ AutoPin = false })
+	else
+		notifyExistingWaiters(UIData.TalentMenuId)
+		wait(0.2, RoomThreadName)
+		if CheckRoomExitsReady(CurrentRun.CurrentRoom) then
+			UnlockRoomExits(CurrentRun, CurrentRun.CurrentRoom)
+		end
+	end
+end
+
+-- RecreateTalentTree function for BlindTalentScreen
+function RecreateTalentTree(screen, button)
+	local components = screen.Components
+	local componentKey = "TalentObject"..button.TalentColumn.."_"..button.TalentRow
+	wrap_UpdateTalentButtons(screen, true)
+	TeleportCursor({ DestinationId = components[componentKey].Id, ForceUseCheck = true })
+end
+
+-- UpdateAdditionalTalentPointButton function for BlindTalentScreen
+function UpdateAdditionalTalentPointButton(screen, args)
+	args = args or {}
+	local components = screen.Components
+	if screen.ReadOnly then
+		return
+	else
+		ModifyTextBox({ Id = components.TalentPointText.Id, Text = (CurrentRun.NumTalentPoints + 1) })
 	end
 end
 
@@ -3552,66 +3694,17 @@ function wrap_CreateTalentTreeIcons(screen, args)
 					end
 				end
 			end
-			if not hasPreRequisites and talent.QueuedInvested then
-				talent.QueuedInvested = nil		
-			end
-			local stateText = ""
-			if talent.Invested or talent.QueuedInvested then
-				stateText = GetDisplayName({ Text = "On" })
-			elseif not talent.Invested then
-				if hasPreRequisites then
-					stateText = GetDisplayName({ Text = "Off" }) .. ", " .. (CurrentRun.NumTalentPoints + 1) .. " " .. GetDisplayName({Text = "AdditionalTalentPointDisplay"})
-				else
-					stateText = GetDisplayName({Text = "AwardMenuLocked"}) .. ", " .. (CurrentRun.NumTalentPoints + 1) .. " " .. GetDisplayName({Text = "AdditionalTalentPointDisplay"})
-				end
-			end
-
-			local talentNameText = GetDisplayName({Text = talent.Name}) or talent.Name
-		local titleText = talentNameText .. ", " .. stateText
-			CreateTextBox({ 
-				Id = talentObject.Id,
-				Text = titleText,
-				OffsetX = 0, OffsetY = 0,
-				Font = "P22UndergroundSCHeavy",
-				Justification = "LEFT",
-				Color = Color.Transparent,
-			})
-			local newTraitData =  GetProcessedTraitData({ Unit = CurrentRun.Hero, TraitName = talent.Name, Rarity = talent.Rarity, ForBoonInfo = true })
-			newTraitData.ForBoonInfo = true
-			SetTraitTextData( newTraitData )
-			CreateTextBox({ 
-				Id = talentObject.Id,
-				Text = talent.Name,
-				OffsetX = 0, OffsetY = 0,
-				Font = "P22UndergroundSCHeavy",
-				Justification = "LEFT",
-				Color = Color.Transparent,
-				UseDescription = true,
-				LuaKey = "TooltipData", LuaValue = newTraitData
-			})
-
-			if talent.LinkTo then
-				local linkText = "→"
-				for k,v in pairs(talent.LinkTo) do
-					-- print((button.TalentColumn + 1) .."_"..v)
-					-- print(components.TalentIdsDictionary[(button.TalentColumn + 1) .."_"..v])
-					local linkedButton = components["TalentObject" .. (i + 1) .."_"..v]
-
-					-- Safety check: Ensure linkedButton exists before accessing it
-					if linkedButton and linkedButton.Data and linkedButton.Data.Name then
-						linkText = linkText .. GetDisplayName({Text = linkedButton.Data.Name}) .. ", "
+			-- Check bidirectional links (can be unlocked from talents below too)
+			if not hasPreRequisites and talent.LinkTo and talent.Bidirectional then
+				for _, preReqIndex in pairs( talent.LinkTo ) do
+					if components["TalentObject"..(i+1).."_"..preReqIndex] and ( components["TalentObject"..(i+1).."_"..preReqIndex].Data.Invested or components["TalentObject"..(i+1).."_"..preReqIndex].Data.QueuedInvested ) then
+						-- if any are invested, this becomes valid
+						hasPreRequisites = true
 					end
 				end
-				linkText = linkText:sub(1, -3)
-				CreateTextBox({ 
-					Id = talentObject.Id,
-					Text = linkText,
-					OffsetX = 0, OffsetY = 0,
-					Font = "P22UndergroundSCHeavy",
-					Justification = "LEFT",
-					Color = Color.Transparent,
-				})
 			end
+			-- Don't create text here - wrap_UpdateTalentButtons will create all text
+			-- This ensures text is always current and not stale
 		end
 	end
 end
@@ -3625,11 +3718,14 @@ function wrap_UpdateTalentButtons(screen, skipUsableCheck)
 		return
 	end
 
+	screen.AllInvested = true  -- Assume all invested, set to false if any are not
+
 	for i, column in ipairs( CurrentRun.Hero.SlottedSpell.Talents ) do
 		for s, talent in pairs( column ) do
 			local talentObject = components["TalentObject"..i.."_"..s]
 			DestroyTextBox({Id = talentObject.Id})
-			local talent = talentObject.Data
+			-- Update talentObject.Data to current state from game
+			talentObject.Data = talent
 			local hasPreRequisites = true
 			if talent.LinkFrom then
 				hasPreRequisites = false
@@ -3640,9 +3736,32 @@ function wrap_UpdateTalentButtons(screen, skipUsableCheck)
 					end
 				end
 			end
-			if not hasPreRequisites and talent.QueuedInvested then
-				talent.QueuedInvested = nil		
+			-- Check bidirectional links (can be unlocked from talents below too)
+			if not hasPreRequisites and talent.LinkTo and talent.Bidirectional then
+				for _, preReqIndex in pairs( talent.LinkTo ) do
+					if components["TalentObject"..(i+1).."_"..preReqIndex] and ( components["TalentObject"..(i+1).."_"..preReqIndex].Data.Invested or components["TalentObject"..(i+1).."_"..preReqIndex].Data.QueuedInvested ) then
+						-- if any are invested, this becomes valid
+						hasPreRequisites = true
+					end
+				end
 			end
+			if not hasPreRequisites and talent.QueuedInvested then
+				talent.QueuedInvested = nil
+			end
+
+			-- Set Valid property for clickable buttons
+			if not talent.Invested and not talent.QueuedInvested and hasPreRequisites then
+				talentObject.Valid = true
+				screen.AllInvested = false  -- At least one talent can still be invested
+			else
+				talentObject.Valid = false
+			end
+
+			-- Also set AllInvested to false if there are any non-invested talents
+			if not talent.Invested then
+				screen.AllInvested = false
+			end
+
 			local stateText = ""
 			if talent.Invested or talent.QueuedInvested then
 				stateText = GetDisplayName({ Text = "On" })
