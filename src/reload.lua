@@ -914,7 +914,7 @@ local mapPointsOfInterest = {
 			{ Name = "QuestLog_Unlocked_Subtitle", ObjectId = 560662, DestinationOffsetY = -120 },
 			{ Name = "GhostAdminScreen_Title",     ObjectId = 567390, DestinationOffsetY = 137, RequireUseable = false },
 			{ Name = "Broker",                     ObjectId = 558096, DestinationOffsetX = 140, DestinationOffsetY = 35 },
-			{ Name = "Supply Drop",                ObjectId = 583652, DestinationOffsetX = 117, DestinationOffsetY = -64 }, --No direct translation in sjson
+			{ Name = "MailboxScreen_Title",                ObjectId = 583652, DestinationOffsetX = 117, DestinationOffsetY = -64 }, --No direct translation in sjson
 			{ Name = "Training Ground",            ObjectId = 587947, RequireUseable = false } --No direct translation in sjson
 			--we're cheating a little here as this is the telport to the stair object in the loading zone, as every once in a while the actual loading zone has not been found
 		}
@@ -958,7 +958,7 @@ local mapPointsOfInterest = {
 			{ Name = "Keepsakes",                       ObjectId = 421320, DestinationOffsetX = 119, DestinationOffsetY = 30 },
 			{ Name = "BiomeF",                          ObjectId = 587938, DestinationOffsetX = 263, DestinationOffsetY = -293, RequireUseable = false },
 			{ Name = "BiomeN",                          ObjectId = 587935, DestinationOffsetX = -162, DestinationOffsetY = 194, RequireUseable = false },
-			{ Name = "ShrineMenu",                      ObjectId = 589694, DestinationOffsetY = 90 },
+			{ Name = "Shrine",                      ObjectId = 589694, DestinationOffsetY = 90 },
 			{ Name = "Hub",                             ObjectId = 588689, RequireUseable = false },
 		}
 	},
@@ -2268,10 +2268,13 @@ function OnAdvancedTooltipPress()
 				end
 			end
 			if GameState.WorldUpgradesAdded.WorldUpgradeMusicPlayer then
-				table.insert(rewardsTable, { Name = "MusicPlayerScreen", ObjectId = 738510 })
+				table.insert(rewardsTable, { Name = "MusicPlayer", ObjectId = 738510 })
+			end
+			if GameState.WorldUpgradesAdded.WorldUpgradeBadgeSeller then
+				table.insert(rewardsTable, { Name = "Bartender", ObjectId = 590506 })
 			end
 			if GameState.WorldUpgradesAdded.WorldUpgradeRunHistory then
-				table.insert(rewardsTable, { Name = "RunHistoryScreen", ObjectId = 589466 })
+				table.insert(rewardsTable, { Name = "Historian", ObjectId = 589466 })
 			end
 		end
 		if TableLength(rewardsTable) > 0 then
