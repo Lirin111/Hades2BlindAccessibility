@@ -1038,6 +1038,73 @@ local mapPointsOfInterest = {
 		end,
 		Objects = {}
 	},
+	-- Post-Typhon boss rooms (after defeating Typhon)
+	Q_PostBoss01 = {
+		AddNPCs = true,
+		SetupFunction = function(t)
+			-- Add lore interactables (InspectPoints) for post-Typhon area
+			t = AddInspectPoints(t)
+			-- Add palace entrance/forcefield gate (always present)
+			if IsUseable({ Id = 792642 }) then
+				table.insert(t, { Name = "Palace Entrance", ObjectId = 792642, DestinationOffsetY = -200 })
+			end
+			return t
+		end,
+		Objects = {}
+	},
+	Q_Story01 = {
+		AddNPCs = true,
+		SetupFunction = function(t)
+			-- Add lore interactables (InspectPoints) for Zeus's Palace area
+			t = AddInspectPoints(t)
+			-- Add palace exit point (activated after talking to Apollo)
+			if IsUseable({ Id = 792347 }) then
+				table.insert(t, { Name = "Exit", ObjectId = 792347, DestinationOffsetY = -150 })
+			end
+			return t
+		end,
+		Objects = {}
+	},
+	-- Post-Chronos boss rooms (after defeating Chronos in Tartarus)
+	I_PostBoss01 = {
+		AddNPCs = true,
+		SetupFunction = function(t)
+			-- Add lore interactables (InspectPoints) for post-Chronos area
+			t = AddInspectPoints(t)
+			-- Add bed to enter flashback (always present)
+			if IsUseable({ Id = 310036 }) then
+				table.insert(t, { Name = "Bed", ObjectId = 310036, DestinationOffsetY = -150 })
+			end
+			return t
+		end,
+		Objects = {}
+	},
+	I_ChronosFlashback01 = {
+		AddNPCs = true,
+		SetupFunction = function(t)
+			-- Add lore interactables (InspectPoints) for Chronos flashback
+			t = AddInspectPoints(t)
+			-- Add exit door to Death Area
+			if IsUseable({ Id = 420896 }) then
+				table.insert(t, { Name = "Exit", ObjectId = 420896, DestinationOffsetY = -150 })
+			end
+			return t
+		end,
+		Objects = {}
+	},
+	I_DeathAreaRestored = {
+		AddNPCs = true,
+		SetupFunction = function(t)
+			-- Add lore interactables (InspectPoints) for restored Death Area
+			t = AddInspectPoints(t)
+			-- Add family rescue point (activated after exploring)
+			if IsUseable({ Id = 774464 }) then
+				table.insert(t, { Name = "Family Rescue", ObjectId = 774464, DestinationOffsetY = -200 })
+			end
+			return t
+		end,
+		Objects = {}
+	},
 	-- Default room config for all biomes with NPCs
 	["*"] = {
 		AddNPCs = true,
@@ -1657,12 +1724,30 @@ function rom.game.BlindAccessGoToReward(screen, button)
 		-- Adjust for specific object types
 		if button.reward.Name then
 			local name = button.reward.Name
-			if name:find("Door") or name:find("Exit") then
+			if name:find("Door") or name:find("Exit") or button.reward.IsDoor then
 				destinationOffsetY = -120 -- Further back for doors
 			elseif name:find("Loot") or name:find("Reward") then
 				destinationOffsetY = -60  -- Closer for loot
 			elseif name:find("Store") or name:find("Shop") then
 				destinationOffsetY = -100 -- Good distance for shops
+			end
+		end
+
+		-- Special positioning for NPCs - position directly in front ready to interact
+		if button.reward.IsNPC or (button.reward.Name and ActiveEnemies) then
+			-- Check if this object is an NPC by checking ActiveEnemies
+			local isNPC = false
+			if ActiveEnemies then
+				for enemyId, enemy in pairs(ActiveEnemies) do
+					if enemy.ObjectId == button.reward.ObjectId then
+						isNPC = true
+						break
+					end
+				end
+			end
+			if isNPC then
+				destinationOffsetY = 150  -- Stand directly in front of NPCs for interaction
+				destinationOffsetX = 0
 			end
 		end
 	end
@@ -2248,6 +2333,40 @@ function OnAdvancedTooltipPress()
 		OpenRewardMenu(rewardsTable)
 		return
 	end
+
+	-- Handle post-Typhon rooms (Q_PostBoss01, Q_Story01) like Crossroads/Flashback
+	-- Handle post-Chronos rooms (I_PostBoss01, I_ChronosFlashback01, I_DeathAreaRestored) the same way
+	local curMapName = GetMapName()
+	if (curMapName == "Q_PostBoss01" or curMapName == "Q_Story01" or
+	    curMapName == "I_PostBoss01" or curMapName == "I_ChronosFlashback01" or curMapName == "I_DeathAreaRestored") and IsInputAllowed({}) then
+		rewardsTable = ProcessTable()
+
+		-- Add exit doors to the menu (they're normally blocked in ProcessTable)
+		if MapState.OfferedExitDoors then
+			for doorId, door in pairs(MapState.OfferedExitDoors) do
+				if door and door.ObjectId then
+					local doorName = "Exit"
+					if door.Name then
+						doorName = door.Name
+					end
+					-- Get a readable name for the door
+					local displayName = GetDisplayName({ Text = doorName, IgnoreSpecialFormatting = true })
+					if displayName == doorName and door.Room and door.Room.Name then
+						-- Try using the room name if door name wasn't translated
+						displayName = GetDisplayName({ Text = door.Room.Name, IgnoreSpecialFormatting = true })
+						if displayName == door.Room.Name then
+							displayName = "Exit to " .. door.Room.Name
+						end
+					end
+					table.insert(rewardsTable, { Name = displayName, ObjectId = door.ObjectId, IsDoor = true })
+				end
+			end
+		end
+
+		OpenRewardMenu(rewardsTable)
+		return
+	end
+
 	if IsEmpty(ActiveScreens) then
 		if not IsEmpty(MapState.CombatUIHide) or not IsInputAllowed({}) then
 			-- If no screen is open, controlled entirely by input status
