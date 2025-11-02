@@ -2728,88 +2728,85 @@ function wrap_GhostAdminDisplayCategory(screen, button)
 	local category = screen.ItemCategories[button.CategoryIndex]
 	local slotName = category.Name
 
-
-	local availableItems = {}
-	local boughtItems = {}
-
-	CurrentRun.ViewableWorldUpgrades = CurrentRun.ViewableWorldUpgrades or {}
-	for i, cosmeticName in ipairs(screen.ItemCategories[button.CategoryIndex]) do
-		local cosmeticData = WorldUpgradeData[cosmeticName]
-		if GhostAdminAllowViewItem(screen, category, cosmeticData) then
-			if GameState.WorldUpgradesAdded[cosmeticName] and not cosmeticData.Repeatable then
-				table.insert(boughtItems, cosmeticData)
-			else
-				table.insert(availableItems, cosmeticData)
-			end
-		end
-	end
-
-	local currentIndex = 0
-	for k, v in pairs(availableItems) do
-		currentIndex = currentIndex + 1
-
-		local purchaseButtonKey = "PurchaseButton" .. currentIndex
-		local button = screen.Components[purchaseButtonKey]
+	-- Process available items (not purchased)
+	for k, itemData in pairs(screen.AvailableItems) do
+		local name = itemData.Name
+		local buttonKey = name .. "Button"
+		local itemButton = screen.Components[buttonKey]
 
 		-- Skip if button doesn't exist
-		if not button then
+		if not itemButton then
 			goto continue
 		end
 
-		local name = v.Name
 		local displayName = GetDisplayName({ Text = name, IgnoreSpecialFormatting = true })
 
 		local itemNameFormat = ShallowCopyTable(screen.ItemAvailableAffordableNameFormat)
-		itemNameFormat.Id = button.Id
-
+		itemNameFormat.Id = itemButton.Id
 		itemNameFormat.Text = displayName
 
-		DestroyTextBox({ Id = button.Id })
+		DestroyTextBox({ Id = itemButton.Id })
 		CreateTextBox(itemNameFormat)
 
 		-- Hidden description for tooltip
 		CreateTextBox({
-			Id = button.Id,
+			Id = itemButton.Id,
 			Text = name,
 			UseDescription = true,
 			Color = Color.Transparent,
 			LuaKey = "TooltipData",
-			LuaValue = v,
+			LuaValue = itemData,
+		})
+
+		-- Add invisible flavor text for screen reader
+		local flavorKey = name .. "_Flavor"
+		CreateTextBox({
+			Id = itemButton.Id,
+			Text = flavorKey,
+			UseDescription = true,
+			Color = Color.Transparent,
 		})
 		::continue::
 	end
 
-	for k, v in pairs(boughtItems) do
-		currentIndex = currentIndex + 1
-
-		local purchaseButtonKey = "PurchaseButton" .. currentIndex
-		local button = screen.Components[purchaseButtonKey]
+	-- Process purchased items
+	for k, itemData in pairs(screen.PurchasedItems) do
+		local name = itemData.Name
+		local buttonKey = name .. "Button"
+		local itemButton = screen.Components[buttonKey]
 
 		-- Skip if button doesn't exist
-		if not button then
+		if not itemButton then
 			goto continue2
 		end
 
-		local name = v.Name
 		local displayName = GetDisplayName({ Text = name, IgnoreSpecialFormatting = true })
 
-		local itemNameFormat = ShallowCopyTable(screen.ItemAvailableAffordableNameFormat)
-		itemNameFormat.Id = button.Id
-
+		local itemNameFormat = ShallowCopyTable(screen.ItemPurchasedNameFormat)
+		itemNameFormat.Id = itemButton.Id
 		itemNameFormat.Text = displayName ..
 		", ," .. GetDisplayName({ Text = "On", IgnoreSpecialFormatting = true }) .. ", ,"
 
-		DestroyTextBox({ Id = button.Id })
+		DestroyTextBox({ Id = itemButton.Id })
 		CreateTextBox(itemNameFormat)
 
 		-- Hidden description for tooltip
 		CreateTextBox({
-			Id = button.Id,
+			Id = itemButton.Id,
 			Text = name,
 			UseDescription = true,
 			Color = Color.Transparent,
 			LuaKey = "TooltipData",
-			LuaValue = v,
+			LuaValue = itemData,
+		})
+
+		-- Add invisible flavor text for screen reader
+		local flavorKey = name .. "_Flavor"
+		CreateTextBox({
+			Id = itemButton.Id,
+			Text = flavorKey,
+			UseDescription = true,
+			Color = Color.Transparent,
 		})
 		::continue2::
 	end
@@ -2821,95 +2818,79 @@ function override_GhostAdminScreenRevealNewItemsPresentation(screen, button)
 		return
 	end
 
-	AddInputBlock({ Name = "GhostAdminScreenRevealNewItemspResentation" })
+	local components = screen.Components
+	AddInputBlock({ Name = "GhostAdminScreenRevealNewItemsPresentation" })
 
-	-- Add comprehensive safety checks for screen object and handle new data structures
-	if not screen.Components then
-		RemoveInputBlock({ Name = "GhostAdminScreenRevealNewItemspResentation" })
+	-- Add comprehensive safety checks for screen object
+	if not components then
+		RemoveInputBlock({ Name = "GhostAdminScreenRevealNewItemsPresentation" })
 		return
 	end
 
 	if not screen.AvailableItems then
-		RemoveInputBlock({ Name = "GhostAdminScreenRevealNewItemspResentation" })
+		RemoveInputBlock({ Name = "GhostAdminScreenRevealNewItemsPresentation" })
 		return
 	end
 
-	-- Handle cases where ScrollOffset or ItemsPerPage might be nil or zero
-	local scrollOffset = screen.ScrollOffset or 1
-	local itemsPerPage = screen.ItemsPerPage or 0
-
-	if itemsPerPage <= 0 then
-		RemoveInputBlock({ Name = "GhostAdminScreenRevealNewItemspResentation" })
-		return
-	end
-
-	-- Ensure we don't access beyond available items
-	local maxItems = #screen.AvailableItems or 0
-	if maxItems <= 0 then
-		RemoveInputBlock({ Name = "GhostAdminScreenRevealNewItemspResentation" })
-		return
-	end
-
-	local components = screen.Components
-
-	-- Reveal new items with bounds checking
-	local endIndex = math.min(scrollOffset + itemsPerPage, maxItems)
-
-	-- Reveal new items
-	--for itemNum, item in ipairs( screen.AvailableItems ) do
-	for itemNum = scrollOffset, endIndex do
-		local item = screen.AvailableItems[itemNum]
-		if item ~= nil and item.Name and GameState and GameState.WorldUpgradesRevealed and not GameState.WorldUpgradesRevealed[item.Name] then
-			local purchaseButtonKey = "PurchaseButton" .. itemNum
-			if components[purchaseButtonKey] ~= nil then
-				SetAlpha({ Id = components[purchaseButtonKey].Id, Fraction = 0, Duration = 0 })
-			end
-			local iconKey = "Icon" .. itemNum
-			if components[iconKey] ~= nil then
-				SetAlpha({ Id = components[iconKey].Id, Fraction = 0, Duration = 0 })
-			end
-			local newIconKey = "NewIcon" .. itemNum
-			if components[newIconKey] ~= nil then
-				SetAlpha({ Id = components[newIconKey].Id, Fraction = 0, Duration = 0 })
-			end
-		end
-	end
 	local incantationsRevealed = false
-	for itemNum = scrollOffset, endIndex do
-		local item = screen.AvailableItems[itemNum]
-		if item ~= nil and item.Name and GameState and GameState.WorldUpgradesRevealed and not GameState.WorldUpgradesRevealed[item.Name] then
-			local purchaseButtonKey = "PurchaseButton" .. itemNum
-			if components[purchaseButtonKey] ~= nil then
-				ModifyTextBox({ Id = components[purchaseButtonKey].Id, FadeOpacity = 0.0, FadeTarget = 1.0, FadeDuration = 0.05 })
-				SetAlpha({ Id = components[purchaseButtonKey].Id, Fraction = 1, Duration = 0 })
-				SetAnimation({ Name = "CriticalItemShopButtonReveal", DestinationId = components[purchaseButtonKey].Id, OffsetX = 0, })
+	-- Iterate through all available items and check if they need to be revealed
+	for i, itemData in ipairs(screen.AvailableItems) do
+		if screen.ItemsToReveal and screen.ItemsToReveal[itemData.Name] then
+			-- Auto-scroll for items on other pages
+			local needScroll = false
+			while (i > screen.ScrollOffset + screen.ItemsPerPage) do
+				needScroll = true
+				screen.ScrollOffset = screen.ScrollOffset + screen.ItemsPerPage
+			end
+			if needScroll then
+				wait(0.1)
+				if GenericScrollPresentation then
+					GenericScrollPresentation(screen)
+				end
+				if GhostAdminUpdateVisibility then
+					GhostAdminUpdateVisibility(screen, { AnimateSlider = true })
+				end
+				wait(0.2)
 			end
 
-			thread(PlayVoiceLines, item.OfferedVoiceLines, true)
+			incantationsRevealed = true
+			if HeroVoiceLines and HeroVoiceLines.CauldronTyphonHintVoiceLines then
+				thread(PlayVoiceLines, HeroVoiceLines.CauldronTyphonHintVoiceLines)
+			end
+			thread(PlayVoiceLines, itemData.OfferedVoiceLines or (HeroVoiceLines and HeroVoiceLines.CauldronSpellsRevealingVoiceLines))
 
-			local iconKey = "Icon" .. itemNum
-			if components[iconKey] ~= nil then
-				SetAlpha({ Id = components[iconKey].Id, Fraction = 1, Duration = 0.05 })
+			local itemButton = components[itemData.Name .. "Button"]
+			if itemButton then
+				ModifyTextBox({ Id = itemButton.Id, FadeOpacity = 0.0, FadeTarget = 1.0, FadeDuration = 1.3 })
+				SetAlpha({ Id = itemButton.Id, Fraction = 1.0, Duration = 0.0 })
+				if itemButton.AssociatedIds then
+					SetAlpha({ Ids = itemButton.AssociatedIds, Fraction = 1.0, Duration = 0.6 })
+				end
+				SetAnimation({ DestinationId = itemButton.Id, Name = "CriticalItemShopButtonReveal" })
 			end
-			local newIconKey = "NewIcon" .. itemNum
-			if components[newIconKey] ~= nil then
-				SetAlpha({ Id = components[newIconKey].Id, Fraction = 1, Duration = 0.05 })
-			end
+
 			if CurrentRun and CurrentRun.WorldUpgradesRevealed then
-				CurrentRun.WorldUpgradesRevealed[item.Name] = true
+				CurrentRun.WorldUpgradesRevealed[itemData.Name] = true
 			end
 			if GameState and GameState.WorldUpgradesRevealed then
-				GameState.WorldUpgradesRevealed[item.Name] = true
+				GameState.WorldUpgradesRevealed[itemData.Name] = true
 			end
-			incantationsRevealed = true
-			-- wait( 0.9 )
+			wait(1.0)
 		end
 	end
-	if incantationsRevealed and HeroVoiceLines and HeroVoiceLines.CauldronSpellDiscoveredVoiceLines then
-		thread(PlayVoiceLines, HeroVoiceLines.CauldronSpellDiscoveredVoiceLines, true)
+
+	if screen.ItemsToReveal then
+		screen.ItemsToReveal = {}
 	end
-	wait(0.2) -- Need to wait for last reveal animation to fully finish
-	RemoveInputBlock({ Name = "GhostAdminScreenRevealNewItemspResentation" })
+
+	if incantationsRevealed then
+		if HeroVoiceLines and HeroVoiceLines.CauldronSpellDiscoveredVoiceLines then
+			thread(PlayVoiceLines, HeroVoiceLines.CauldronSpellDiscoveredVoiceLines, true)
+		end
+		wait(0.5)
+	end
+
+	RemoveInputBlock({ Name = "GhostAdminScreenRevealNewItemsPresentation" })
 end
 
 function wrap_MarketScreenDisplayCategory(screen, categoryIndex)
