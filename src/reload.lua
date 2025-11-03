@@ -1077,6 +1077,10 @@ local mapPointsOfInterest = {
 			if IsUseable({ Id = 310036 }) then
 				table.insert(t, { Name = "Bed", ObjectId = 310036, DestinationOffsetY = -150 })
 			end
+			-- Adds the mirror of night
+			if IsUseable({ Id = 741588 }) and not IsUseable({ Id = 310036 }) then
+				table.insert(t, { Name = "Mirror", ObjectId = 741588, DestinationOffsetY = -150 })
+			end
 			return t
 		end,
 		Objects = {}
