@@ -35,6 +35,10 @@ local function setupData()
 			Name = "BlindAccesibilityStoreMenu"
 		},
 	})
+
+	-- Changes the radius of the moving circle in the Typhon VoR fight and the Asphodel anomaly to count the whole map (the visual will stay the same as before)
+	rom.game.EncounterData.BossTyphonHead02.CapturePointRadius = 9999
+	rom.game.EncounterData.GeneratedAnomalyBase.CapturePointRadius = 9999
 end
 
 OnControlPressed { "Inventory", function(triggerArgs)
