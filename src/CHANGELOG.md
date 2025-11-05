@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Darkness resource (Mixer6Common) now properly appears in the rewards menu in Chaos locations
+
 ## [1.0.1] - 2025-11-05
 
 ### Added
