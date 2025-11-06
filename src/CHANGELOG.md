@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Bounty Board (Pitch-Black Stone) screen integration with comprehensive TOLK support
+  - Reads trial name when hovering over bounty items
+  - Reads full trial description (not just abbreviated version)
+  - Reads weapon information (or "Random Weapon" for random trials)
+  - Reads biome name and biome description
+  - Reads keepsake information (or "Random Keepsake" for random trials)
+  - Reads reward information with resource type and amount
+  - All information reads in proper order without duplicates on both first hover and subsequent hovers
+
 ### Fixed
 
 - Darkness resource (Mixer6Common) now properly appears in the rewards menu in Chaos locations

@@ -4237,5 +4237,174 @@ function wrap_Damage(baseFunc, victim, triggerArgs)
 	return result
 end
 
+-- Bounty Board (Pitch-Black Stone) accessibility function
+function wrap_MouseOverBounty(button)
+	if not button or not button.Data or not button.Screen or not button.Screen.Components then
+		return
+	end
+
+	local bountyData = button.Data
+	local screen = button.Screen
+	local bountyComplete = (GameState.PackagedBountyClears[bountyData.Name] ~= nil)
+
+	-- The base game function has already run, all components exist
+	-- Clear all screen component text boxes to prevent TOLK from reading them
+	-- We'll put all text on button.Id instead
+
+	-- Clear ItemTitleText (shows name)
+	if screen.Components.ItemTitleText and screen.Components.ItemTitleText.Id then
+		ModifyTextBox({ Id = screen.Components.ItemTitleText.Id, Text = " " })
+	end
+
+	-- Clear DescriptionText (shows description)
+	if screen.Components.DescriptionText and screen.Components.DescriptionText.Id then
+		ModifyTextBox({ Id = screen.Components.DescriptionText.Id, Text = " " })
+	end
+
+	-- Clear WeaponIconBacking text
+	if screen.Components.WeaponIconBacking and screen.Components.WeaponIconBacking.Id then
+		ModifyTextBox({ Id = screen.Components.WeaponIconBacking.Id, Text = " " })
+	end
+
+	-- Clear LocationIcon text
+	if screen.Components.LocationIcon and screen.Components.LocationIcon.Id then
+		ModifyTextBox({ Id = screen.Components.LocationIcon.Id, Text = " " })
+	end
+
+	-- Clear KeepsakeIcon text
+	if screen.Components.KeepsakeIcon and screen.Components.KeepsakeIcon.Id then
+		ModifyTextBox({ Id = screen.Components.KeepsakeIcon.Id, Text = " " })
+	end
+
+	-- Don't destroy button.Id - just add text to it
+	-- The base game modified an existing text box on button.Id
+	-- We'll append additional info by calling CreateTextBox multiple times
+
+	-- Add the name first
+	local bountyName = bountyData.Name
+	CreateTextBox({
+		Id = button.Id,
+		Text = bountyName,
+		SkipDraw = true,
+		SkipWrap = true,
+		Color = Color.Transparent
+	})
+
+	-- Add description with full text (remove _Short suffix)
+	local textKey = bountyData.Text or bountyData.Name
+	if textKey then
+		local descriptionKey = textKey:gsub("_Short$", "")
+		CreateTextBox({
+			Id = button.Id,
+			Text = descriptionKey,
+			UseDescription = true,
+			SkipDraw = true,
+			SkipWrap = true,
+			Color = Color.Transparent
+		})
+	end
+
+	-- Add weapon information
+	if bountyData.WeaponKitName then
+		local weaponName = bountyData.WeaponKitName
+		if GameState.WorldUpgrades and GameState.WorldUpgrades.WorldUpgradeWeaponUpgradeSystem and bountyData.WeaponUpgradeName then
+			weaponName = bountyData.WeaponUpgradeName
+		end
+		local weaponDisplayName = GetDisplayName({ Text = weaponName, IgnoreSpecialFormatting = true })
+		CreateTextBox({
+			Id = button.Id,
+			Text = "Weapon: " .. weaponDisplayName,
+			SkipDraw = true,
+			SkipWrap = true,
+			Color = Color.Transparent
+		})
+	elseif bountyData.RandomWeaponKitNames then
+		local randomWeapon = GetDisplayName({ Text = "BountyBoard_RandomWeapon", IgnoreSpecialFormatting = true })
+		CreateTextBox({
+			Id = button.Id,
+			Text = "Weapon: " .. randomWeapon,
+			SkipDraw = true,
+			SkipWrap = true,
+			Color = Color.Transparent
+		})
+	end
+
+	-- Add biome information
+	if bountyData.StartingBiome then
+		local biomeTextKey = bountyData.BiomeText or ("Biome" .. bountyData.StartingBiome)
+		local biomeName = GetDisplayName({ Text = biomeTextKey, IgnoreSpecialFormatting = true })
+		CreateTextBox({
+			Id = button.Id,
+			Text = "Biome: " .. biomeName,
+			SkipDraw = true,
+			SkipWrap = true,
+			Color = Color.Transparent
+		})
+
+		-- Add biome description
+		local biomeDescription = GetDisplayName({ Text = biomeTextKey, IgnoreSpecialFormatting = true, UseDescription = true })
+		if biomeDescription and biomeDescription ~= "" and biomeDescription ~= biomeName then
+			CreateTextBox({
+				Id = button.Id,
+				Text = biomeDescription,
+				SkipDraw = true,
+				SkipWrap = true,
+				Color = Color.Transparent
+			})
+		end
+	end
+
+	-- Add keepsake information
+	if bountyData.KeepsakeName then
+		local keepsakeDisplayName = GetDisplayName({ Text = bountyData.KeepsakeName, IgnoreSpecialFormatting = true })
+		CreateTextBox({
+			Id = button.Id,
+			Text = "Keepsake: " .. keepsakeDisplayName,
+			SkipDraw = true,
+			SkipWrap = true,
+			Color = Color.Transparent
+		})
+	elseif bountyData.RandomKeepsakeNames then
+		local randomKeepsake = GetDisplayName({ Text = "BountyBoard_RandomKeepsake", IgnoreSpecialFormatting = true })
+		CreateTextBox({
+			Id = button.Id,
+			Text = "Keepsake: " .. randomKeepsake,
+			SkipDraw = true,
+			SkipWrap = true,
+			Color = Color.Transparent
+		})
+	end
+
+	-- Add reward information
+	local dropData = nil
+	if bountyData.LootOptions then
+		local loot = bountyData.LootOptions[1]
+		if loot.Overrides and loot.Overrides.AddResources then
+			dropData = loot.Overrides
+		else
+			dropData = ConsumableData[loot.Name]
+		end
+	elseif bountyComplete and GameState.WorldUpgrades and GameState.WorldUpgrades.WorldUpgradeBountyBoardRepeat then
+		dropData = ConsumableData[bountyData.ForcedRewardRepeat]
+	else
+		dropData = ConsumableData[bountyData.ForcedReward]
+	end
+
+	if dropData and dropData.AddResources then
+		local resourceName = GetFirstKey(dropData.AddResources)
+		local resourceAmount = dropData.AddResources[resourceName]
+		local resourceDisplayName = GetDisplayName({ Text = resourceName, IgnoreSpecialFormatting = true })
+
+		local rewardLabel = GetDisplayName({ Text = "RunReward", IgnoreSpecialFormatting = true }) or "Reward"
+		CreateTextBox({
+			Id = button.Id,
+			Text = rewardLabel .. ": " .. resourceAmount .. " " .. resourceDisplayName,
+			SkipDraw = true,
+			SkipWrap = true,
+			Color = Color.Transparent
+		})
+	end
+end
+
 
 
