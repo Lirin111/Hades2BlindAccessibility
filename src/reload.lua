@@ -1079,7 +1079,11 @@ local mapPointsOfInterest = {
 			end
 			-- Adds the mirror of night
 			if IsUseable({ Id = 741588 }) and not IsUseable({ Id = 310036 }) then
-				table.insert(t, { Name = "Mirror", ObjectId = 741588, DestinationOffsetY = -150 })
+				table.insert(t, { Name = "Mirror", ObjectId = 741588, DestinationOffsetY = 150 })
+			end
+			-- Adds Zagreus's voiceline trigger to not miss out on dialogue
+			if not IsUseable({ Id = 741588 }) and not IsUseable({ Id = 310036 }) then
+				table.insert(t, { Name = "ZagreusVoicelineTrigger", ObjectId = 772206, DestinationOffsetY = -150 })
 			end
 			return t
 		end,
@@ -1183,6 +1187,7 @@ function ProcessTable(objects, blockIds)
 
 	-- Always add these items - they check IsUseable internally so only useable items will be added
 	t = AddTrove(t)
+	t = AddStand(t)
 	t = AddWell(t)
 	t = AddSurfaceShop(t)
 	t = AddPool(t)
@@ -1360,6 +1365,22 @@ function AddPool(objects)
 	}
 	if not ObjectAlreadyPresent(pool, copy) then
 		table.insert(copy, pool)
+	end
+	return copy
+end
+
+function AddStand(objects)
+	if not CurrentRun.CurrentRoom.MetaRewardStand then
+		return objects
+	end
+
+	local copy = ShallowCopyTable(objects)
+	local switch = {
+		["ObjectId"] = CurrentRun.CurrentRoom.MetaRewardStand.ObjectId,
+		["Name"] = "ShrinePointReward"
+	}
+	if not ObjectAlreadyPresent(switch, copy) then
+		table.insert(copy, switch)
 	end
 	return copy
 end
