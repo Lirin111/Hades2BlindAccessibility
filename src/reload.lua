@@ -2675,6 +2675,77 @@ function wrap_UpdateMetaUpgradeCard(screen, row, column)
 	end
 end
 
+-- Shrine screen (Oath of the Unseen) accessibility functions for real-time updates
+function wrap_ShrineScreenRankUp(screen, button)
+	if not screen or not screen.SelectedItem then
+		return
+	end
+	-- Announce the updated shrine upgrade information
+	AnnounceShrineUpgradeState(screen.SelectedItem)
+end
+
+function wrap_ShrineScreenRankDown(screen, button)
+	if not screen or not screen.SelectedItem then
+		return
+	end
+	-- Announce the updated shrine upgrade information
+	AnnounceShrineUpgradeState(screen.SelectedItem)
+end
+
+function AnnounceShrineUpgradeState(button)
+	if not button or not button.Data then
+		return
+	end
+
+	local upgradeData = button.Data
+	local upgradeName = upgradeData.Name
+	local currentRank = GetNumShrineUpgrades(upgradeName)
+	local maxRank = GetShrineUpgradeMaxRank(upgradeData)
+
+	-- Build the rank status text
+	local displayName = GetDisplayName({ Text = upgradeName, IgnoreSpecialFormatting = true })
+	local rankText = ""
+
+	if currentRank == 0 then
+		rankText = "Inactive"
+	elseif currentRank == maxRank then
+		rankText = "Maximum, Rank " .. currentRank .. " of " .. maxRank
+	else
+		rankText = "Rank " .. currentRank .. " of " .. maxRank
+	end
+
+	-- Destroy existing textboxes
+	DestroyTextBox({ Id = button.Id })
+
+	-- Create the name and rank text
+	CreateTextBox({
+		Id = button.Id,
+		Text = displayName .. ", " .. rankText,
+		SkipDraw = true,
+		SkipWrap = true,
+		Color = Color.Transparent
+	})
+
+	-- Create the description textbox with proper formatting
+	-- Handle pluralized forms like the game does
+	local descriptionTextKey = upgradeName
+	if upgradeData.UsePluralizedForm then
+		descriptionTextKey = GetPluralizedForm(upgradeName, upgradeData.ChangeValue)
+	end
+
+	-- This allows the game to substitute variables like {#PropertyName} with actual values
+	CreateTextBox({
+		Id = button.Id,
+		Text = descriptionTextKey,
+		UseDescription = true,
+		LuaKey = "TooltipData",
+		LuaValue = upgradeData,
+		SkipDraw = true,
+		SkipWrap = true,
+		Color = Color.Transparent
+	})
+end
+
 -- Update button text on mouse over to add Insights and Forget-me-not actions
 function wrap_MouseOverMemCostModule(button)
 	if not button or not button.Id or not button.Screen then

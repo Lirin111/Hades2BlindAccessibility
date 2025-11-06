@@ -103,6 +103,19 @@ modutil.mod.Path.Wrap("IncreaseMetaUpgradeCardLimit", function(baseFunc, screen,
 	return ret
 end)
 
+-- Shrine screen (Oath of the Unseen) accessibility wraps for real-time updates
+modutil.mod.Path.Wrap("ShrineScreenRankUp", function(baseFunc, screen, button)
+	local ret = baseFunc(screen, button)
+	wrap_ShrineScreenRankUp(screen, button)
+	return ret
+end)
+
+modutil.mod.Path.Wrap("ShrineScreenRankDown", function(baseFunc, screen, button)
+	local ret = baseFunc(screen, button)
+	wrap_ShrineScreenRankDown(screen, button)
+	return ret
+end)
+
 modutil.mod.Path.Context.Wrap("OpenGraspLimitScreen", function(parentScreen)
 	modutil.mod.Path.Wrap("HandleScreenInput", function(baseFunc, ...)
 		wrap_OpenGraspLimitAcreen()
@@ -220,6 +233,13 @@ local projectilePath = rom.path.combine(rom.paths.Content, 'Game/Projectiles/Ene
 
 sjson.hook(projectilePath, function(data)
 	return sjson_Chronos(data)
+end)
+
+-- Bounty Board accessibility wrap
+modutil.mod.Path.Wrap("MouseOverBounty", function(baseFunc, button)
+	local ret = baseFunc(button)
+	wrap_MouseOverBounty(button)
+	return ret
 end)
 
 setupData()
