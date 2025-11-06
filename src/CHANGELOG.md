@@ -17,6 +17,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Reads keepsake information (or "Random Keepsake" for random trials)
   - Reads reward information with resource type and amount
   - All information reads in proper order without duplicates on both first hover and subsequent hovers
+- Oath of the Unseen (Shrine) menu real-time screen reader updates
+  - Screen reader now announces changes immediately when increasing or decreasing fear level modifiers
+  - Announces modifier name, current rank status (Inactive/Rank X of Y/Maximum), and full description with current values
+  - Updates refresh in real-time without needing to close and reopen the menu
+- TOLK Compatibility: Added lowercase icon identifier mappings for proper localized text reading
+  - Added mappings for: liferestore, gold, currency, life, health, mana, armor, dash, darkness, hammer, shrinepoint, gift, omega, and more
+  - Icon identifiers in descriptions now read as proper localized names instead of raw identifiers
 
 ### Fixed
 
