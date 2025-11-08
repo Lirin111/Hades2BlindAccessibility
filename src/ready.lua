@@ -242,4 +242,44 @@ modutil.mod.Path.Wrap("MouseOverBounty", function(baseFunc, button)
 	return ret
 end)
 
+-- Fix vanilla game bug: IsRarityForcedCommon doesn't check if referencedData is nil
+modutil.mod.Path.Wrap("IsRarityForcedCommon", function(baseFunc, name, args)
+	args = args or {}
+	-- Early return checks
+	if CurrentRun.CurrentRoom.ForceCommonLootFirstRun and GetCompletedRuns() == 0 then
+		return true
+	end
+
+	local referencedTable = "BoonData"
+	if name == "StackUpgrade" then
+		return true
+	elseif name == "WeaponUpgrade" then
+		return true
+	end
+
+	if CurrentRun.Hero[referencedTable] ~= nil and CurrentRun.Hero[referencedTable].AllowRarityOverride and CurrentRun.CurrentRoom.BoonRaritiesOverride then
+		return false
+	end
+
+	if CurrentRun.Hero[referencedTable] == nil or CurrentRun.Hero[referencedTable].ForceCommon then
+		return true
+	end
+
+	-- Check if referencedData exists before accessing it
+	local referencedData = nil
+	if LootData[name] then
+		referencedData = LootData[name]
+	elseif FieldLootData[name] then
+		referencedData = FieldLootData[name]
+	end
+
+	-- FIX: Add nil check for referencedData to prevent crash
+	if referencedData and not args.IgnoreCurse and HeroHasTrait("ChaosCommonCurse") and referencedTable == "BoonData" and
+		((referencedData.GodLoot or referencedData.TreatAsGodLootByShops) and not referencedData.BlockForceCommon) then
+		return true
+	end
+
+	return false
+end)
+
 setupData()
