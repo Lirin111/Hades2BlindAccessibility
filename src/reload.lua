@@ -1085,6 +1085,10 @@ local mapPointsOfInterest = {
 			if not IsUseable({ Id = 741588 }) and not IsUseable({ Id = 310036 }) then
 				table.insert(t, { Name = "ZagreusVoicelineTrigger", ObjectId = 772206, DestinationOffsetY = -150 })
 			end
+--Gigaros
+			if IsUseable({ Id = 800279 }) then
+				table.insert(t, { Name = "HadesSpearPoints", ObjectId = 800279, DestinationOffsetY = -150 })
+			end
 			return t
 		end,
 		Objects = {}
