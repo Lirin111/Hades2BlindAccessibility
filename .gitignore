@@ -1,2 +1,6 @@
 # Thunderstore CLI build output
 build/
+
+# Claude Code development files
+.claude/
+CLAUDE.md

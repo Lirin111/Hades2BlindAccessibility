@@ -48,6 +48,7 @@ local function on_reload()
 	-- what to do when we are ready, but also again on every reload.
 	-- only do things that are safe to run over and over.
 	
+	-- import 'debug.lua'  -- Disabled for now
 	import 'reload.lua'
 	import 'screendata.lua'
 end
