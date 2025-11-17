@@ -49,6 +49,7 @@ local function on_reload()
 	-- only do things that are safe to run over and over.
 	
 	-- import 'debug.lua'  -- Disabled for now
+	import 'ui/arcana.lua'
 	import 'reload.lua'
 	import 'screendata.lua'
 end
