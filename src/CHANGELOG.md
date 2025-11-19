@@ -7,8 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.4] - 2025-11-18
+
 ### Added
 
+- Fear level announcement integration for Shrine of the Unseen (Oath of the Unseen)
+  - Screen reader now announces total Fear level after each shrine modifier change
+  - Provides immediate feedback on cumulative difficulty level for better run planning
 - Bounty Board (Pitch-Black Stone) screen integration with comprehensive TOLK support
   - Reads trial name when hovering over bounty items
   - Reads full trial description (not just abbreviated version)
@@ -27,6 +32,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Critical crash bug in override_SpawnStoreItemInWorld where CurrentRun.CurrentRoom.Store could be nil
+  - Added proper nil checks before accessing Store.SpawnedStoreItems
+  - Prevents game crashes when spawning items outside of normal shop rooms
 - Darkness resource (Mixer6Common) now properly appears in the rewards menu in Chaos locations
 
 ## [1.0.1] - 2025-11-05
@@ -164,8 +172,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Arcana Menu integration with TOLK screen reader
 - Final Boss instant kill move -> 50 damage
 
-[unreleased]: https://github.com/Lirin111/Hades2BlindAccessibility/compare/1.0.0...HEAD
-[1.0.0]: https://github.com/Lirin111/Hades2BlindAccessibility/compare/0.4.2...1.0.0
+[unreleased]: https://github.com/Lirin111/Hades2BlindAccessibility/compare/1.0.4...HEAD
+[1.0.4]: https://github.com/Lirin111/Hades2BlindAccessibility/compare/1.0.1...1.0.4
+[1.0.1]: https://github.com/Lirin111/Hades2BlindAccessibility/compare/0.4.2...1.0.1
 [0.4.2]: https://github.com/Lirin111/Hades2BlindAccessibility/compare/0.4.1...0.4.2
 [0.4.1]: https://github.com/Lirin111/Hades2BlindAccessibility/compare/0.4.0...0.4.1
 [0.4.0]: https://github.com/Lirin111/Hades2BlindAccessibility/compare/0.3.2...0.4.0
