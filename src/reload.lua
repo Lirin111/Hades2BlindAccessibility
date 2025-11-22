@@ -1195,6 +1195,8 @@ function ProcessTable(objects, blockIds)
 	t = AddWell(t)
 	t = AddSurfaceShop(t)
 	t = AddPool(t)
+	t = AddAetherFont(t)
+	t = AddOlympianStatues(t)
 	-- Only add inspect points if exits are unlocked OR in Asphodel (to avoid duplicates from SetupFunction)
 	if CurrentRun and CurrentRun.CurrentRoom and (CurrentRun.CurrentRoom.ExitsUnlocked or inAsphodel) then
 		t = AddInspectPoints(t)
@@ -1406,6 +1408,58 @@ function AddInspectPoints(objects)
 			end
 		end
 	end
+	return copy
+end
+
+function AddAetherFont(objects)
+	-- Add Aether Font (ManaFountain) - magic restoration fountain
+	local copy = ShallowCopyTable(objects)
+	local manaFountainIds = GetIdsByType({ Name = "ManaFountain" })
+	if manaFountainIds then
+		for _, fountainId in ipairs(manaFountainIds) do
+			if IsUseable({ Id = fountainId }) then
+				local fountainName = GetDisplayName({ Text = "UseManaFountain", IgnoreSpecialFormatting = true })
+				local fountain = {
+					["ObjectId"] = fountainId,
+					["Name"] = fountainName,
+				}
+				if not ObjectAlreadyPresent(fountain, copy) then
+					table.insert(copy, fountain)
+				end
+			end
+		end
+	end
+	return copy
+end
+
+function AddOlympianStatues(objects)
+	-- Add Olympian god statues (interactive traps that help in combat)
+	local copy = ShallowCopyTable(objects)
+	local statueTypes = {
+		{ Name = "StatueTrap_Zeus", DisplayName = "Zeus" },
+		{ Name = "StatueTrap_Hestia", DisplayName = "Hestia" },
+		{ Name = "StatueTrap_Demeter", DisplayName = "Demeter" },
+		{ Name = "StatueTrap_Poseidon", DisplayName = "Poseidon" }
+	}
+	
+	for _, statueInfo in ipairs(statueTypes) do
+		local statueIds = GetIdsByType({ Name = statueInfo.Name })
+		if statueIds then
+			for _, statueId in ipairs(statueIds) do
+				if IsUseable({ Id = statueId }) then
+					local statueName = GetDisplayName({ Text = statueInfo.DisplayName, IgnoreSpecialFormatting = true }) .. " " .. GetDisplayName({ Text = "UseStatue", IgnoreSpecialFormatting = true })
+					local statue = {
+						["ObjectId"] = statueId,
+						["Name"] = statueName,
+					}
+					if not ObjectAlreadyPresent(statue, copy) then
+						table.insert(copy, statue)
+					end
+				end
+			end
+		end
+	end
+	
 	return copy
 end
 
