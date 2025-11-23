@@ -2372,6 +2372,15 @@ function OnCodexPress()
 					end
 				end
 			end
+			-- Add Zeus Mana Restoration (ManaDropZeus)
+			local zeusDropIds = GetIdsByType({ Name = "ManaDropZeus" })
+			if zeusDropIds then
+				for i, id in ipairs(zeusDropIds) do
+					if IsUseable({Id = id}) then
+						table.insert(rewardsTable, { Name = "Zeus Magic Restoration", ObjectId = id })
+					end
+				end
+			end
 			-- Add InspectPoints from MapState
 			if MapState.InspectPoints then
 				for id, inspectPoint in pairs(MapState.InspectPoints) do
@@ -2857,7 +2866,14 @@ local function GetTestamentInfo(bountyData, bountyName)
 
 	if not bossName and bountyData.Encounters and bountyData.Encounters[1] then
 		local encounterId = bountyData.Encounters[1]
-		bossName = BossNames[encounterId]
+		-- Try to get display name first
+		if GetDisplayName then
+			bossName = GetDisplayName({ Text = encounterId })
+		end
+		-- Fallback to hardcoded names
+		if not bossName or bossName == "" or bossName == encounterId then
+			bossName = BossNames[encounterId]
+		end
 	end
 
 	return weaponName, bossName
@@ -2935,7 +2951,8 @@ function AnnounceBossTestaments()
 		return
 	end
 
-	local currentWeaponName = WeaponNames[currentWeaponId] or currentWeaponId
+	-- Keep the weapon ID for matching, get display name later for output
+	local currentWeaponMatchName = WeaponNames[currentWeaponId] or currentWeaponId
 
 	-- Get current fear level
 	local currentFear = GetTotalSpentShrinePoints and GetTotalSpentShrinePoints() or 0
@@ -2976,7 +2993,7 @@ function AnnounceBossTestaments()
 				end
 
 				-- Check if this testament matches current weapon and has required fear
-				if weaponName == currentWeaponName and bossName then
+				if weaponName == currentWeaponMatchName and bossName then
 					-- Try to extract fear requirement from actual data
 					local requiredFear = 0
 
@@ -3046,6 +3063,15 @@ function AnnounceBossTestaments()
 		end
 	end
 
+	-- Get proper display name for output
+	local currentWeaponDisplayName = nil
+	if GetDisplayName then
+		currentWeaponDisplayName = GetDisplayName({ Text = currentWeaponId })
+	end
+	if not currentWeaponDisplayName or currentWeaponDisplayName == "" then
+		currentWeaponDisplayName = currentWeaponMatchName
+	end
+
 	-- Build announcement - only show NEXT testament
 	local announcement = ""
 
@@ -3058,7 +3084,7 @@ function AnnounceBossTestaments()
 		-- Get the first (lowest fear requirement) testament
 		local nextTestament = availableTestaments[1]
 
-		announcement = "Next testament with " .. currentWeaponName .. ": " .. nextTestament.boss
+		announcement = "Next testament with " .. currentWeaponDisplayName .. ": " .. nextTestament.boss
 
 		-- Show if current fear exceeds the requirement
 		if nextTestament.fear and nextTestament.fear > 0 then
@@ -3077,7 +3103,7 @@ function AnnounceBossTestaments()
 			announcement = announcement .. ". " .. (#availableTestaments - 1) .. " more available"
 		end
 	else
-		announcement = "No testaments available for " .. currentWeaponName .. " at Fear " .. currentFear
+		announcement = "No testaments available for " .. currentWeaponDisplayName .. " at Fear " .. currentFear
 		-- Debug: show what weapon ID we're using if not recognized
 		if currentWeaponId and WeaponNames[currentWeaponId] == nil then
 			announcement = announcement .. " (Unknown weapon ID: " .. currentWeaponId .. ")"
@@ -4906,6 +4932,7 @@ function wrap_MouseOverBounty(button)
 		})
 	end
 end
+
 
 
 

@@ -116,6 +116,15 @@ modutil.mod.Path.Wrap("ShrineScreenRankDown", function(baseFunc, screen, button)
 	return ret
 end)
 
+-- Announce when shrine is reset to 0
+modutil.mod.Path.Wrap("ShrineLogicResetAll", function(baseFunc, ...)
+	local ret = baseFunc(...)
+	if rom and rom.tolk then
+		rom.tolk.output("Fear reset to 0", true)
+	end
+	return ret
+end)
+
 -- Reset testament announcement flag when closing shrine
 modutil.mod.Path.Wrap("CloseShrineUpgradeScreen", function(baseFunc, ...)
 	_G.ShrineTestamentsAnnouncedThisSession = false
