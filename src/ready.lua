@@ -116,6 +116,30 @@ modutil.mod.Path.Wrap("ShrineScreenRankDown", function(baseFunc, screen, button)
 	return ret
 end)
 
+-- Reset testament announcement flag when closing shrine
+modutil.mod.Path.Wrap("CloseShrineUpgradeScreen", function(baseFunc, ...)
+	_G.ShrineTestamentsAnnouncedThisSession = false
+	return baseFunc(...)
+end)
+
+-- Try different function names for shrine opening
+modutil.mod.Path.Wrap("OpenShrineUpgradeMenu", function(baseFunc, ...)
+	local ret = baseFunc(...)
+	AnnounceBossTestaments()
+	return ret
+end)
+
+-- Also try when navigating shrine upgrades for first time
+modutil.mod.Path.Wrap("MouseOverShrineUpgrade", function(baseFunc, screen, button, ...)
+	local ret = baseFunc(screen, button, ...)
+	-- Announce testaments first time hovering a shrine upgrade
+	if screen and not screen.TestamentsAnnounced then
+		screen.TestamentsAnnounced = true
+		AnnounceBossTestaments()
+	end
+	return ret
+end)
+
 modutil.mod.Path.Context.Wrap("OpenGraspLimitScreen", function(parentScreen)
 	modutil.mod.Path.Wrap("HandleScreenInput", function(baseFunc, ...)
 		wrap_OpenGraspLimitAcreen()
