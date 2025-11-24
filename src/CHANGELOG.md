@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.6] - 2025-11-21
+
+## Added
+-Aether Font  (Source of magic) to rewards menu
+-Olympian statues in Mount Of Olympus biome to the reward menu
+
+
 ## [1.0.4] - 2025-11-18
 
 ### Added
