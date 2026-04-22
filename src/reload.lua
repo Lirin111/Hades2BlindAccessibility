@@ -260,7 +260,7 @@ function wrap_InventoryScreenDisplayCategory(screen, categoryIndex, args)
 		if not resourceData then
 			goto continue
 		end
-		if CanShowResourceInInventory( resourceData ) then
+		if CanShowResourceInInventory( resourceData, screen.Args or {} ) then
 			local textLines = nil
 			local wantsToBeGifted = false
 			local canBeGifted = false
@@ -2285,6 +2285,7 @@ function OnCodexPress()
 		end
 		local rewardsTable = {}
 		local curMap = GetMapName()
+		if not curMap then return end
 
 		if string.find(curMap, "Hub_PreRun") then
 			rewardsTable = ProcessTable(MapState.WeaponKits)
@@ -2369,15 +2370,6 @@ function OnCodexPress()
 				for i, id in ipairs(darknessIds) do
 					if IsUseable({Id = id}) then
 						table.insert(rewardsTable, { IsResourceHarvest = true, Name = "Mixer6Common", ObjectId = id })
-					end
-				end
-			end
-			-- Add Zeus Mana Restoration (ManaDropZeus)
-			local zeusDropIds = GetIdsByType({ Name = "ManaDropZeus" })
-			if zeusDropIds then
-				for i, id in ipairs(zeusDropIds) do
-					if IsUseable({Id = id}) then
-						table.insert(rewardsTable, { Name = "Zeus Magic Restoration", ObjectId = id })
 					end
 				end
 			end
@@ -2579,58 +2571,76 @@ function override_SpawnStoreItemInWorld(itemData, kitId)
 		spawnedItem = CreateWeaponLoot({
 			SpawnPoint = kitId,
 			ResourceCosts = itemData.ResourceCosts or
-				GetProcessedValue(ConsumableData.WeaponUpgradeDrop.ResourceCosts),
+				GetProcessedValue(ConsumableData[itemData.Name].ResourceCosts),
 			DoesNotBlockExit = true,
 			SuppressSpawnSounds = true,
 		})
 	elseif itemData.Name == "ShopHermesUpgrade" then
+		local boonRarities = itemData.BoonRaritiesOverride
+		if not boonRarities and itemData.Args then
+			boonRarities = itemData.Args.BoonRaritiesOverride
+		end
 		spawnedItem = CreateHermesLoot({
 			SpawnPoint = kitId,
 			ResourceCosts = itemData.ResourceCosts or
-				GetProcessedValue(ConsumableData.ShopHermesUpgrade.ResourceCosts),
+				GetProcessedValue(ConsumableData[itemData.Name].ResourceCosts),
 			DoesNotBlockExit = true,
 			SuppressSpawnSounds = true,
 			BoughtFromShop = true,
-			AddBoostedAnimation =
-				itemData.AddBoostedAnimation,
-			BoonRaritiesOverride = itemData.BoonRaritiesOverride
+			AddBoostedAnimation = itemData.AddBoostedAnimation,
+			BoonRaritiesOverride = boonRarities
 		})
+		spawnedItem.BoonRaritiesOverride = boonRarities
 		spawnedItem.CanReceiveGift = false
 		SetThingProperty({ Property = "SortBoundsScale", Value = 1.0, DestinationId = spawnedItem.ObjectId })
 	elseif itemData.Name == "ShopManaUpgrade" then
+		local boonRarities = itemData.BoonRaritiesOverride
+		if not boonRarities and itemData.Args then
+			boonRarities = itemData.Args.BoonRaritiesOverride
+		end
 		spawnedItem = CreateManaLoot({
 			SpawnPoint = kitId,
 			ResourceCosts = itemData.ResourceCosts or
-				GetProcessedValue(ConsumableData.ShopManaUpgrade.ResourceCosts),
+				GetProcessedValue(ConsumableData[itemData.Name].ResourceCosts),
 			DoesNotBlockExit = true,
 			SuppressSpawnSounds = true,
 			BoughtFromShop = true,
-			AddBoostedAnimation =
-				itemData.AddBoostedAnimation,
-			BoonRaritiesOverride = itemData.BoonRaritiesOverride
+			AddBoostedAnimation = itemData.AddBoostedAnimation,
+			BoonRaritiesOverride = boonRarities
 		})
+		spawnedItem.BoonRaritiesOverride = boonRarities
 		spawnedItem.CanReceiveGift = false
 		SetThingProperty({ Property = "SortBoundsScale", Value = 1.0, DestinationId = spawnedItem.ObjectId })
 	elseif itemData.Type == "Consumable" then
 		local consumablePoint = SpawnObstacle({ Name = itemData.Name, DestinationId = kitId, Group = "Standing" })
 		local upgradeData = GetRampedConsumableData(ConsumableData[itemData.Name] or LootData[itemData.Name])
-		spawnedItem = CreateConsumableItemFromData(consumablePoint, upgradeData, itemData.CostOverride)
+		spawnedItem = CreateConsumableItemFromData(consumablePoint, upgradeData, itemData.CostOverride, { AutoLoadPackages = true })
 		spawnedItem.CanDuplicate = false
 		spawnedItem.CanReceiveGift = false
+		spawnedItem.BoughtFromShop = true
 		ApplyConsumableItemResourceMultiplier(CurrentRun.CurrentRoom, spawnedItem)
-		ExtractValues(CurrentRun.Hero, spawnedItem, spawnedItem)
+		if spawnedItem.ExtractValues ~= nil then
+			ExtractValues(CurrentRun.Hero, spawnedItem, spawnedItem)
+		end
 	elseif itemData.Type == "Boon" then
+		local boonRarities = itemData.BoonRaritiesOverride
+		if not boonRarities and itemData.Args then
+			boonRarities = itemData.Args.BoonRaritiesOverride
+		end
 		itemData.Args.SpawnPoint = kitId
 		itemData.Args.DoesNotBlockExit = true
 		itemData.Args.SuppressSpawnSounds = true
 		itemData.Args.SuppressFlares = true
+		itemData.Args.AutoLoadPackages = true
 		spawnedItem = GiveLoot(itemData.Args)
 		spawnedItem.CanReceiveGift = false
+		spawnedItem.BoonRaritiesOverride = boonRarities
 		SetThingProperty({ Property = "SortBoundsScale", Value = 1.0, DestinationId = spawnedItem.ObjectId })
 	end
 	if spawnedItem ~= nil then
+		MapState.RewardPointsUsed[kitId] = spawnedItem.ObjectId
 		spawnedItem.SpawnPointId = kitId
-		if not itemData.PendingShopItem then
+		if not itemData.PendingShopItem and not itemData.ZagContractItem then
 			SetObstacleProperty({ Property = "MagnetismWhileBlocked", Value = 0, DestinationId = spawnedItem.ObjectId })
 			spawnedItem.UseText = spawnedItem.PurchaseText or "Shop_UseText"
 			spawnedItem.IconPath = spawnedItem.TextIconPath or spawnedItem.IconPath
@@ -2766,353 +2776,6 @@ function wrap_UpdateMetaUpgradeCard(screen, row, column)
 	end
 end
 
--- Weapon and boss name mappings for testaments
-local WeaponNames = {
-	["WeaponStaffSwing"] = "Staff",
-	["WeaponDagger"] = "Sister Blades",
-	["WeaponCast"] = "Sister Blades",  -- Alternative ID for daggers
-	["WeaponBlink"] = "Black Coat",  -- Alternative ID (dash weapon)
-	["WeaponTorch"] = "Umbral Flames",
-	["WeaponTorchSpecial"] = "Umbral Flames",  -- Torch variant/aspect
-	["WeaponAxe"] = "Moonstone Axe",
-	["WeaponSprint"] = "Moonstone Axe",  -- Axe variant/aspect
-	["WeaponLob"] = "Argent Skull",
-	["WeaponSuit"] = "Black Coat",
-}
-
-local BossNames = {
-	["BossHecate01"] = "Hecate",
-	["BossHecate02"] = "Hecate",
-	["BossScylla01"] = "Scylla",
-	["BossScylla02"] = "Scylla",
-	["BossPolyphemus01"] = "Polyphemus",
-	["BossPolyphemus02"] = "Polyphemus",
-	["BossEris01"] = "Eris",
-	["BossEris02"] = "Eris",
-	["BossInfestedCerberus01"] = "Infested Cerberus",
-	["BossInfestedCerberus02"] = "Infested Cerberus",
-	["BossPrometheus01"] = "Prometheus",
-	["BossPrometheus02"] = "Prometheus",
-	["BossChronos01"] = "Chronos",
-	["BossChronos02"] = "Chronos",
-	["BossTyphonHead01"] = "Typhon",
-	["BossTyphonHead02"] = "Typhon",
-}
-
--- Remove fake fear requirements - we don't know the real ones yet
-local BossFearRequirements = {}
-
--- Map bounty name patterns to weapons and bosses
-local BountyWeaponMap = {
-	["Staff"] = "Staff",
-	["Dagger"] = "Sister Blades",
-	["Torch"] = "Umbral Flames",
-	["Axe"] = "Moonstone Axe",
-	["Lob"] = "Argent Skull",
-	["Suit"] = "Black Coat",
-}
-
-local BountyBossMap = {
-	["FBoss"] = "Hecate",  -- F area boss
-	["GBoss"] = "Scylla",  -- G area boss
-	["HBoss"] = "Infested Cerberus",  -- H area boss
-	["NBoss"] = "Polyphemus",  -- N area boss
-	["OBoss"] = "Eris",  -- O area boss
-	["PBoss"] = "Prometheus",  -- P area boss
-	["QBoss"] = "Chronos",  -- Q area boss (Surface/Olympus)
-	["IBoss"] = "Typhon",  -- I area boss (Tartarus)
-}
-
--- Extract testament info from bounty name pattern
-local function GetTestamentInfo(bountyData, bountyName)
-	if not bountyData then
-		return nil, nil
-	end
-
-	local weaponName = nil
-	local bossName = nil
-
-	-- Try to extract from bounty name pattern (e.g., "BountyShrineDaggerGBoss")
-	if bountyName then
-		-- Check for weapon in name
-		for pattern, weapon in pairs(BountyWeaponMap) do
-			if string.find(bountyName, pattern) then
-				weaponName = weapon
-				break
-			end
-		end
-
-		-- Check for boss in name
-		for pattern, boss in pairs(BountyBossMap) do
-			if string.find(bountyName, pattern) then
-				bossName = boss
-				break
-			end
-		end
-	end
-
-	-- Fallback to old extraction method if name pattern doesn't work
-	if not weaponName and bountyData.CompleteGameStateRequirements then
-		for _, req in ipairs(bountyData.CompleteGameStateRequirements) do
-			if req.Path and req.Path[#req.Path] == "Weapons" and req.HasAny then
-				local weaponId = req.HasAny[1]
-				if weaponId then
-					weaponName = WeaponNames[weaponId]
-				end
-				break
-			end
-		end
-	end
-
-	if not bossName and bountyData.Encounters and bountyData.Encounters[1] then
-		local encounterId = bountyData.Encounters[1]
-		-- Try to get display name first
-		if GetDisplayName then
-			bossName = GetDisplayName({ Text = encounterId })
-		end
-		-- Fallback to hardcoded names
-		if not bossName or bossName == "" or bossName == encounterId then
-			bossName = BossNames[encounterId]
-		end
-	end
-
-	return weaponName, bossName
-end
-
--- Announce boss testaments for current weapon at current fear
-function AnnounceBossTestaments()
-	if not rom or not rom.tolk then
-		return
-	end
-
-	if not BountyData then
-		rom.tolk.output("Testament data not available", false)
-		return
-	end
-
-	-- Get current weapon - extensive debug logging
-	local currentWeaponId = nil
-
-	-- Debug everything we can find
-	if rom and rom.log then
-		rom.log.info("=== Weapon Detection Debug ===")
-
-		-- Check CurrentRun
-		if CurrentRun then
-			rom.log.info("CurrentRun exists")
-			if CurrentRun.Hero and CurrentRun.Hero.Weapons then
-				rom.log.info("CurrentRun.Hero.Weapons:")
-				for weaponId, _ in pairs(CurrentRun.Hero.Weapons) do
-					rom.log.info("  - " .. weaponId)
-				end
-			end
-		else
-			rom.log.info("CurrentRun is nil (in hub)")
-		end
-
-		-- Check GameState
-		if GameState then
-			rom.log.info("GameState exists")
-			if GameState.LastWeaponUpgradeData then
-				rom.log.info("LastWeaponUpgradeData.WeaponName: " .. tostring(GameState.LastWeaponUpgradeData.WeaponName))
-			end
-			if GameState.LastInteractedWeaponUpgrade then
-				rom.log.info("LastInteractedWeaponUpgrade: " .. tostring(GameState.LastInteractedWeaponUpgrade))
-			end
-			-- Check for any weapon-related fields
-			for key, value in pairs(GameState) do
-				if string.find(key:lower(), "weapon") then
-					rom.log.info("GameState." .. key .. " = " .. tostring(value))
-				end
-			end
-		end
-		rom.log.info("=== End Debug ===")
-	end
-
-	-- Try GameState.PrimaryWeaponName first (most reliable when it exists)
-	if GameState and GameState.PrimaryWeaponName then
-		currentWeaponId = GameState.PrimaryWeaponName
-	-- Then check CurrentRun for main weapons only
-	elseif CurrentRun and CurrentRun.Hero and CurrentRun.Hero.Weapons then
-		-- Priority list of main weapons
-		local mainWeapons = {"WeaponStaffSwing", "WeaponDagger", "WeaponTorch", "WeaponAxe", "WeaponLob", "WeaponSuit"}
-		for _, weapon in ipairs(mainWeapons) do
-			if CurrentRun.Hero.Weapons[weapon] then
-				currentWeaponId = weapon
-				break
-			end
-		end
-	end
-
-	if not currentWeaponId then
-		if rom and rom.tolk then
-			rom.tolk.output("Cannot determine current weapon", false)
-		end
-		return
-	end
-
-	-- Keep the weapon ID for matching, get display name later for output
-	local currentWeaponMatchName = WeaponNames[currentWeaponId] or currentWeaponId
-
-	-- Get current fear level
-	local currentFear = GetTotalSpentShrinePoints and GetTotalSpentShrinePoints() or 0
-
-	-- Find relevant testaments
-	local availableTestaments = {}
-	local completedTestaments = {}
-
-	-- Check bounties in the shrine order if available
-	local bountyOrder = ScreenData and ScreenData.Shrine and ScreenData.Shrine.BountyOrder or {}
-
-	-- If no order defined, check all bounties
-	if #bountyOrder == 0 then
-		for bountyName, _ in pairs(BountyData) do
-			table.insert(bountyOrder, bountyName)
-		end
-	end
-
-	for _, bountyName in ipairs(bountyOrder) do
-		local bountyData = BountyData[bountyName]
-		if bountyData then
-			-- Check if testament is unlocked
-			local isUnlocked = true
-			if bountyData.UnlockGameStateRequirements then
-				isUnlocked = IsGameStateEligible and IsGameStateEligible(CurrentRun, bountyData.UnlockGameStateRequirements) or false
-			end
-
-			-- Check if testament is completed
-			local isCompleted = GameState and GameState.ShrineBountiesCompleted and GameState.ShrineBountiesCompleted[bountyName] or false
-
-			if isUnlocked then
-				local weaponName, bossName = GetTestamentInfo(bountyData, bountyName)
-
-				-- Debug logging
-				if weaponName or bossName then
-					-- Uncomment for debugging:
-					-- rom.log.info("Testament " .. bountyName .. ": weapon=" .. tostring(weaponName) .. ", boss=" .. tostring(bossName))
-				end
-
-				-- Check if this testament matches current weapon and has required fear
-				if weaponName == currentWeaponMatchName and bossName then
-					-- Try to extract fear requirement from actual data
-					local requiredFear = 0
-
-					-- Debug: log the bounty structure to understand it better
-					if bossName == "Scylla" then
-						-- Log what we find for Scylla since we know it should be Fear 2
-						if rom and rom.log then
-							rom.log.info("=== Scylla bounty: " .. bountyName .. " ===")
-							if bountyData.UnlockGameStateRequirements then
-								rom.log.info("UnlockGameStateRequirements:")
-								for i, req in ipairs(bountyData.UnlockGameStateRequirements) do
-									rom.log.info("  Req " .. i .. ":")
-									for key, value in pairs(req) do
-										if type(value) == "table" then
-											rom.log.info("    " .. key .. " = " .. table.concat(value, "."))
-										else
-											rom.log.info("    " .. key .. " = " .. tostring(value))
-										end
-									end
-								end
-							end
-							if bountyData.CompleteGameStateRequirements then
-								rom.log.info("CompleteGameStateRequirements:")
-								for i, req in ipairs(bountyData.CompleteGameStateRequirements) do
-									rom.log.info("  Req " .. i .. ":")
-									for key, value in pairs(req) do
-										if type(value) == "table" and key == "Path" then
-											rom.log.info("    " .. key .. " = " .. table.concat(value, "."))
-										elseif type(value) == "table" then
-											rom.log.info("    " .. key .. " = table with " .. #value .. " items")
-										else
-											rom.log.info("    " .. key .. " = " .. tostring(value))
-										end
-									end
-								end
-							end
-							rom.log.info("=== End Scylla debug ===")
-						end
-					end
-
-					-- Extract fear requirement from CompleteGameStateRequirements
-					if bountyData.CompleteGameStateRequirements then
-						for _, req in ipairs(bountyData.CompleteGameStateRequirements) do
-							if req.Path and table.concat(req.Path, ".") == "GameState.SpentShrinePointsCache"
-							   and req.Comparison == ">=" and req.Value then
-								requiredFear = req.Value
-								break
-							end
-						end
-					end
-
-					if currentFear >= requiredFear then
-						if not isCompleted then
-							table.insert(availableTestaments, {
-								boss = bossName,
-								fear = requiredFear,
-								bountyName = bountyName
-							})
-							-- Debug: log what we're adding
-							-- rom.log.info("Adding testament: " .. bossName .. " at fear " .. requiredFear .. " for " .. currentWeaponName)
-						else
-							table.insert(completedTestaments, bossName)
-						end
-					end
-				end
-			end
-		end
-	end
-
-	-- Get proper display name for output
-	local currentWeaponDisplayName = nil
-	if GetDisplayName then
-		currentWeaponDisplayName = GetDisplayName({ Text = currentWeaponId })
-	end
-	if not currentWeaponDisplayName or currentWeaponDisplayName == "" then
-		currentWeaponDisplayName = currentWeaponMatchName
-	end
-
-	-- Build announcement - only show NEXT testament
-	local announcement = ""
-
-	if #availableTestaments > 0 then
-		-- Sort by fear requirement to get the next/most relevant one
-		table.sort(availableTestaments, function(a, b)
-			return (a.fear or 0) < (b.fear or 0)
-		end)
-
-		-- Get the first (lowest fear requirement) testament
-		local nextTestament = availableTestaments[1]
-
-		announcement = "Next testament with " .. currentWeaponDisplayName .. ": " .. nextTestament.boss
-
-		-- Show if current fear exceeds the requirement
-		if nextTestament.fear and nextTestament.fear > 0 then
-			if currentFear > nextTestament.fear then
-				announcement = announcement .. " (Fear " .. currentFear .. " exceeds requirement of " .. nextTestament.fear .. ")"
-			elseif currentFear == nextTestament.fear then
-				announcement = announcement .. " (Fear " .. nextTestament.fear .. " requirement met)"
-			end
-		else
-			-- Don't claim "no fear requirement" when we just don't know
-			announcement = announcement .. " at Fear " .. currentFear
-		end
-
-		-- If there are more testaments available, mention count
-		if #availableTestaments > 1 then
-			announcement = announcement .. ". " .. (#availableTestaments - 1) .. " more available"
-		end
-	else
-		announcement = "No testaments available for " .. currentWeaponDisplayName .. " at Fear " .. currentFear
-		-- Debug: show what weapon ID we're using if not recognized
-		if currentWeaponId and WeaponNames[currentWeaponId] == nil then
-			announcement = announcement .. " (Unknown weapon ID: " .. currentWeaponId .. ")"
-		end
-	end
-
-	rom.tolk.output(announcement, false)
-end
-
 -- Shrine screen (Oath of the Unseen) accessibility functions for real-time updates
 function wrap_ShrineScreenRankUp(screen, button)
 	if not screen or not screen.SelectedItem then
@@ -3120,8 +2783,6 @@ function wrap_ShrineScreenRankUp(screen, button)
 	end
 	-- Announce the updated shrine upgrade information
 	AnnounceShrineUpgradeState(screen.SelectedItem)
-	-- Also announce boss testaments when fear changes
-	AnnounceBossTestaments()
 end
 
 function wrap_ShrineScreenRankDown(screen, button)
@@ -3130,22 +2791,11 @@ function wrap_ShrineScreenRankDown(screen, button)
 	end
 	-- Announce the updated shrine upgrade information
 	AnnounceShrineUpgradeState(screen.SelectedItem)
-	-- Also announce boss testaments when fear changes
-	AnnounceBossTestaments()
 end
 
 function AnnounceShrineUpgradeState(button)
 	if not button or not button.Data then
 		return
-	end
-
-	-- First time announcing any shrine upgrade, also announce testaments
-	if not _G.ShrineTestamentsAnnouncedThisSession then
-		_G.ShrineTestamentsAnnouncedThisSession = true
-		if rom and rom.tolk then
-			rom.tolk.output("Checking testaments...", false)
-		end
-		AnnounceBossTestaments()
 	end
 
 	local upgradeData = button.Data
@@ -4932,7 +4582,6 @@ function wrap_MouseOverBounty(button)
 		})
 	end
 end
-
 
 
 
