@@ -953,6 +953,15 @@ local mapPointsOfInterest = {
 					end
 				end
 			end
+			-- If Zagreus' Journey is installed, add the Chaos Gate exit door
+			local mods = rom.mods
+			local zagreusJourneyActive = mods["NikkelM-Zagreus_Journey"]
+			if zagreusJourneyActive then
+				local chaosGateId = GetIdsByType({ Name = "ModsNikkelMHadesBiomes_HadesRunStartDoor"})
+				if chaosGateId then
+					table.insert(copy, { Name = "Zagreus' Journey Chaos Gate", ObjectId = chaosGateId[1], RequireUseable = false })
+				end
+			end
 			-- Add lore interactables (InspectPoints) for pre-run area
 			copy = AddInspectPoints(copy)
 			return copy
